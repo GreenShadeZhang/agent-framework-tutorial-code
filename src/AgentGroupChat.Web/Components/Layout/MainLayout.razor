@@ -1,0 +1,37 @@
+@inherits LayoutComponentBase
+
+<div class="app-container">
+    <header class="app-header">
+        <div class="header-content">
+            <div class="logo-section">
+                <span class="logo-icon">🤖</span>
+                <h1 class="app-title">Agent Group Chat Platform</h1>
+            </div>
+            <nav class="header-nav">
+                <a href="/" class="nav-link active">Chat</a>
+                <a href="https://learn.microsoft.com/aspnet/core/" target="_blank" class="nav-link">Documentation</a>
+            </nav>
+        </div>
+    </header>
+    
+    <main class="app-main">
+        @Body
+    </main>
+    
+    <footer class="app-footer">
+        <div class="footer-content">
+            <span>© 2025 Agent Group Chat Platform</span>
+            <span class="footer-links">
+                <a href="#">Privacy</a> · 
+                <a href="#">Terms</a> · 
+                <a href="#">Support</a>
+            </span>
+        </div>
+    </footer>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
