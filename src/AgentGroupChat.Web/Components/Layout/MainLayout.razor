@@ -1,57 +1,37 @@
 @inherits LayoutComponentBase
+@inject NavigationManager NavigationManager
 
-<div class="app-container">
-    <header class="app-header">
-        <div class="header-content">
-            <div class="logo-section">
-                <span class="logo-icon">🤖</span>
-                <h1 class="app-title">Agent Group Chat Platform</h1>
-            </div>
-            <nav class="header-nav">
-                <a href="/" class="nav-link active">Chat</a>
-                <a href="https://learn.microsoft.com/aspnet/core/" target="_blank" class="nav-link">Documentation</a>
-            </nav>
-        </div>
-    </header>
+<MudLayout>
+    <MudAppBar Elevation="2" Color="Color.Primary">
+        <MudIconButton Icon="@Icons.Material.Filled.Chat" Color="Color.Inherit" Edge="Edge.Start" />
+        <MudText Typo="Typo.h6" Class="ml-3">Agent Group Chat Platform</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.Help" Color="Color.Inherit" Href="https://learn.microsoft.com/aspnet/core/" Target="_blank" />
+    </MudAppBar>
     
-    <main class="app-main">
-        @Body
-    </main>
-    
-    <footer class="app-footer">
-        <div class="footer-content">
-            <span>© 2025 Agent Group Chat Platform</span>
-            <span class="footer-links">
-                <a href="#">Privacy</a> · 
-                <a href="#">Terms</a> · 
-                <a href="#">Support</a>
-            </span>
-        </div>
-    </footer>
-</div>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.False" Class="pa-0" Style="height: 100%;">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
 <div id="blazor-error-ui" style="display:none;" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="" class="reload">Reload</a>
-    <a class="dismiss">🗙</a>
+    <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
+        An unhandled error has occurred.
+        <MudButton OnClick="@Reload" Color="Color.Inherit" Size="Size.Small">Reload</MudButton>
+        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@Dismiss" Color="Color.Inherit" Size="Size.Small" />
+    </MudAlert>
 </div>
 
-<script>
-    // Only show error UI when Blazor actually encounters an error
-    window.Blazor?.start().catch(error => {
-        document.getElementById('blazor-error-ui').style.display = 'flex';
-    });
-    
-    // Handle dismiss button
-    document.addEventListener('DOMContentLoaded', () => {
-        const errorUI = document.getElementById('blazor-error-ui');
-        const dismissBtn = errorUI?.querySelector('.dismiss');
-        
-        if (dismissBtn) {
-            dismissBtn.addEventListener('click', () => {
-                errorUI.style.display = 'none';
-            });
-        }
-    });
-</script>
+@code {
+    private void Reload()
+    {
+        NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
+    }
 
+    private void Dismiss()
+    {
+        // This will be handled by JavaScript in the browser
+    }
+}

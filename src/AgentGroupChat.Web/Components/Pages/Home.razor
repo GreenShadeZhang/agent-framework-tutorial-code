@@ -6,104 +6,162 @@
 
 <PageTitle>Agent Group Chat</PageTitle>
 
-<div class="chat-container">
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <h3>💬 Conversations</h3>
-            <button class="btn btn-primary" @onclick="CreateNewSessionAsync">
-                ➕ New Chat
-            </button>
+<MudContainer MaxWidth="MaxWidth.False" Class="d-flex" Style="height: calc(100vh - 64px); padding: 0;">
+    <!-- Sidebar -->
+    <MudPaper Elevation="0" Class="sidebar-panel" Style="width: 320px; border-right: 1px solid var(--mud-palette-divider);">
+        <div class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-3">
+                <MudIcon Icon="@Icons.Material.Filled.Forum" Class="mr-2" />
+                Conversations
+            </MudText>
+            <MudButton Variant="Variant.Filled" 
+                       Color="Color.Primary" 
+                       FullWidth="true" 
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="CreateNewSessionAsync">
+                New Chat
+            </MudButton>
         </div>
-        <div class="session-list">
+        
+        <MudDivider />
+        
+        <MudList T="string">
             @foreach (var session in _sessions)
             {
-                <div class="session-item @(_currentSession?.Id == session.Id ? "active" : "")" 
-                     @onclick="() => LoadSession(session.Id)">
-                    <div class="session-name">@session.Name</div>
-                    <div class="session-date">@session.LastUpdated.ToString("MMM dd, HH:mm")</div>
-                </div>
+                <MudListItem OnClick="() => LoadSession(session.Id)" 
+                             Class="@(_currentSession?.Id == session.Id ? "mud-primary-text" : "")"
+                             Style="@(_currentSession?.Id == session.Id ? "background-color: var(--mud-palette-primary-lighten); border-left: 3px solid var(--mud-palette-primary);" : "")"
+                             T="string">
+                    <div class="d-flex flex-column" style="width: 100%;">
+                        <MudText Typo="Typo.body1"><strong>@session.Name</strong></MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">@session.LastUpdated.ToString("MMM dd, HH:mm")</MudText>
+                    </div>
+                </MudListItem>
             }
-        </div>
-    </div>
+        </MudList>
+    </MudPaper>
 
-    <div class="chat-main">
-        <div class="chat-header">
-            <h2>🤖 Agent Group Chat</h2>
-            <div class="agent-list">
-                <span>Available Agents:</span>
+    <!-- Main Chat Area -->
+    <div class="d-flex flex-column flex-grow-1">
+        <!-- Chat Header -->
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.h5" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" />
+                Agent Group Chat
+            </MudText>
+            <div class="d-flex flex-wrap gap-2 align-center">
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mr-2">Available Agents:</MudText>
                 @foreach (var agent in _agents)
                 {
-                    <span class="agent-badge" title="@agent.Description">
+                    <MudChip Color="Color.Primary" 
+                             Size="Size.Small" 
+                             Variant="Variant.Outlined"
+                             title="@agent.Description"
+                             T="string">
                         @agent.Avatar @agent.Name
-                    </span>
+                    </MudChip>
                 }
             </div>
-        </div>
+        </MudPaper>
 
-        <div class="messages-container" @ref="_messagesContainer">
+        <!-- Messages Container -->
+        <div class="flex-grow-1 overflow-auto pa-4" style="background: linear-gradient(to bottom, #f5f3ff 0%, #ffffff 100%);" @ref="_messagesContainer">
             @if (_currentSession?.Messages != null)
             {
                 @foreach (var msg in _currentSession.Messages)
                 {
-                    <div class="message @(msg.IsUser ? "user-message" : "agent-message")">
+                    <div class="mb-4 d-flex @(msg.IsUser ? "justify-end" : "justify-start")">
                         @if (!msg.IsUser)
                         {
-                            <div class="avatar">@msg.AgentAvatar</div>
+                            <MudAvatar Color="Color.Primary" Size="Size.Medium" Class="mr-3" Style="align-self: flex-start;">
+                                @msg.AgentAvatar
+                            </MudAvatar>
                         }
-                        <div class="message-content">
+                        
+                        <div style="max-width: 65%;">
                             @if (!msg.IsUser)
                             {
-                                <div class="agent-name">@msg.AgentName</div>
+                                <MudText Typo="Typo.caption" Color="Color.Primary" Class="mb-1 ml-2">
+                                    <strong>@msg.AgentName</strong>
+                                </MudText>
                             }
-                            <div class="message-text">@msg.Content</div>
-                            @if (!string.IsNullOrEmpty(msg.ImageUrl))
-                            {
-                                <div class="message-image">
-                                    <img src="@msg.ImageUrl" alt="Shared image" />
-                                </div>
-                            }
-                            <div class="message-time">@msg.Timestamp.ToString("HH:mm")</div>
+                            
+                            <MudPaper Elevation="2" 
+                                      Class="pa-3" 
+                                      Style="@(msg.IsUser ? "background: linear-gradient(135deg, var(--mud-palette-primary) 0%, var(--mud-palette-secondary) 100%); color: white;" : "")">
+                                <MudText Typo="Typo.body2" Style="@(msg.IsUser ? "color: white;" : "")">
+                                    @msg.Content
+                                </MudText>
+                                
+                                @if (!string.IsNullOrEmpty(msg.ImageUrl))
+                                {
+                                    <MudImage Src="@msg.ImageUrl" 
+                                              Alt="Shared image" 
+                                              Class="mt-2 rounded" 
+                                              Style="max-width: 100%;" />
+                                }
+                                
+                                <MudText Typo="Typo.caption" Class="mt-1" Style="@(msg.IsUser ? "color: rgba(255,255,255,0.7);" : "opacity: 0.6;")">
+                                    @msg.Timestamp.ToString("HH:mm")
+                                </MudText>
+                            </MudPaper>
                         </div>
+                        
                         @if (msg.IsUser)
                         {
-                            <div class="avatar">👤</div>
+                            <MudAvatar Color="Color.Success" Size="Size.Medium" Class="ml-3" Style="align-self: flex-start;">
+                                <MudIcon Icon="@Icons.Material.Filled.Person" />
+                            </MudAvatar>
                         }
                     </div>
                 }
             }
+            
             @if (_isLoading)
             {
-                <div class="message agent-message">
-                    <div class="avatar">⏳</div>
-                    <div class="message-content">
-                        <div class="typing-indicator">
-                            <span></span><span></span><span></span>
-                        </div>
-                    </div>
+                <div class="mb-4 d-flex justify-start">
+                    <MudAvatar Color="Color.Primary" Size="Size.Medium" Class="mr-3">
+                        <MudIcon Icon="@Icons.Material.Filled.HourglassBottom" />
+                    </MudAvatar>
+                    <MudPaper Elevation="2" Class="pa-3">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                        <MudText Typo="Typo.body2" Class="ml-2 d-inline">Thinking...</MudText>
+                    </MudPaper>
                 </div>
             }
         </div>
 
-        <div class="input-container">
-            <div class="mention-hint">
+        <!-- Input Area -->
+        <MudPaper Elevation="3" Class="pa-4">
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">
                 💡 Tip: Use @("@") to mention an agent (e.g., @("@")Sunny, @("@")Techie, @("@")Artsy, @("@")Foodie)
+            </MudAlert>
+            
+            <div class="d-flex gap-3 align-end">
+                <MudTextField @bind-Value="_inputMessage" 
+                              Placeholder="@PlaceholderText"
+                              Variant="Variant.Outlined" 
+                              Lines="3"
+                              Disabled="_isLoading"
+                              Immediate="true"
+                              OnKeyDown="HandleKeyPress"
+                              Class="flex-grow-1" />
+                
+                <MudButton Variant="Variant.Filled" 
+                           Color="Color.Primary" 
+                           EndIcon="@Icons.Material.Filled.Send"
+                           Size="Size.Large"
+                           OnClick="SendMessage"
+                           Disabled="@(_isLoading || string.IsNullOrWhiteSpace(_inputMessage))">
+                    Send
+                </MudButton>
             </div>
-            <div class="input-box">
-                <textarea @bind="_inputMessage" 
-                         @bind:event="oninput"
-                         @onkeydown="HandleKeyPress"
-                         placeholder="Type your message... Use @("@") to mention an agent"
-                         rows="3"
-                         disabled="@_isLoading"></textarea>
-                <button class="btn btn-send" @onclick="SendMessage" disabled="@(_isLoading || string.IsNullOrWhiteSpace(_inputMessage))">
-                    Send ✈️
-                </button>
-            </div>
-        </div>
+        </MudPaper>
     </div>
-</div>
+</MudContainer>
 
 @code {
+    private const string PlaceholderText = "Type your message... Use @ to mention an agent";
     private List<ChatSession> _sessions = new();
     private ChatSession? _currentSession;
     private List<AgentProfile> _agents = new();

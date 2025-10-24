@@ -1,5 +1,6 @@
 using AgentGroupChat.Web.Components;
 using AgentGroupChat.Web.Services;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,9 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddOutputCache();
+
+// Add MudBlazor services
+builder.Services.AddMudServices();
 
 // This URL uses "https+http://" to indicate HTTPS is preferred over HTTP.
 // Learn more about service discovery scheme resolution at https://aka.ms/dotnet/sdschemes.
