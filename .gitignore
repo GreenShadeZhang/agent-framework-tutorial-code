@@ -11,6 +11,9 @@
 *.sln.docstates
 *.env
 
+# LiteDB database files
+**/Data/
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

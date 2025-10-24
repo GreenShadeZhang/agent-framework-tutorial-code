@@ -1,0 +1,209 @@
+@page "/"
+@using AgentGroupChat.Models
+@using AgentGroupChat.Services
+@inject SessionService SessionService
+@inject AgentChatService AgentChatService
+@rendermode InteractiveServer
+
+<PageTitle>Agent Group Chat</PageTitle>
+
+<div class="chat-container">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3>💬 Conversations</h3>
+            <button class="btn btn-primary" @onclick="CreateNewSession">
+                ➕ New Chat
+            </button>
+        </div>
+        <div class="session-list">
+            @foreach (var session in _sessions)
+            {
+                <div class="session-item @(_currentSession?.Id == session.Id ? "active" : "")" 
+                     @onclick="() => LoadSession(session.Id)">
+                    <div class="session-name">@session.Name</div>
+                    <div class="session-date">@session.LastUpdated.ToString("MMM dd, HH:mm")</div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="chat-main">
+        <div class="chat-header">
+            <h2>🤖 Agent Group Chat</h2>
+            <div class="agent-list">
+                <span>Available Agents:</span>
+                @foreach (var agent in _agents)
+                {
+                    <span class="agent-badge" title="@agent.Description">
+                        @agent.Avatar @agent.Name
+                    </span>
+                }
+            </div>
+        </div>
+
+        <div class="messages-container" @ref="_messagesContainer">
+            @if (_currentSession?.Messages != null)
+            {
+                @foreach (var msg in _currentSession.Messages)
+                {
+                    <div class="message @(msg.IsUser ? "user-message" : "agent-message")">
+                        @if (!msg.IsUser)
+                        {
+                            <div class="avatar">@msg.AgentAvatar</div>
+                        }
+                        <div class="message-content">
+                            @if (!msg.IsUser)
+                            {
+                                <div class="agent-name">@msg.AgentName</div>
+                            }
+                            <div class="message-text">@msg.Content</div>
+                            @if (!string.IsNullOrEmpty(msg.ImageUrl))
+                            {
+                                <div class="message-image">
+                                    <img src="@msg.ImageUrl" alt="Shared image" />
+                                </div>
+                            }
+                            <div class="message-time">@msg.Timestamp.ToString("HH:mm")</div>
+                        </div>
+                        @if (msg.IsUser)
+                        {
+                            <div class="avatar">👤</div>
+                        }
+                    </div>
+                }
+            }
+            @if (_isLoading)
+            {
+                <div class="message agent-message">
+                    <div class="avatar">⏳</div>
+                    <div class="message-content">
+                        <div class="typing-indicator">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="input-container">
+            <div class="mention-hint">
+                💡 Tip: Use @("@") to mention an agent (e.g., @("@")Sunny, @("@")Techie, @("@")Artsy, @("@")Foodie)
+            </div>
+            <div class="input-box">
+                <textarea @bind="_inputMessage" 
+                         @bind:event="oninput"
+                         @onkeydown="HandleKeyPress"
+                         placeholder="Type your message... Use @("@") to mention an agent"
+                         rows="3"
+                         disabled="@_isLoading"></textarea>
+                <button class="btn btn-send" @onclick="SendMessage" disabled="@(_isLoading || string.IsNullOrWhiteSpace(_inputMessage))">
+                    Send ✈️
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ChatSession> _sessions = new();
+    private ChatSession? _currentSession;
+    private List<AgentProfile> _agents = new();
+    private string _inputMessage = string.Empty;
+    private bool _isLoading = false;
+    private ElementReference _messagesContainer;
+
+    protected override void OnInitialized()
+    {
+        _agents = AgentChatService.GetAgentProfiles();
+        LoadSessions();
+        
+        // Create a default session if none exist
+        if (_sessions.Count == 0)
+        {
+            CreateNewSession();
+        }
+        else
+        {
+            _currentSession = _sessions.First();
+        }
+    }
+
+    private void LoadSessions()
+    {
+        _sessions = SessionService.GetAllSessions();
+    }
+
+    private void CreateNewSession()
+    {
+        _currentSession = SessionService.CreateSession();
+        _sessions.Insert(0, _currentSession);
+        StateHasChanged();
+    }
+
+    private void LoadSession(string sessionId)
+    {
+        _currentSession = SessionService.GetSession(sessionId);
+        StateHasChanged();
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_inputMessage) || _currentSession == null)
+            return;
+
+        _isLoading = true;
+        var userMessage = _inputMessage;
+        _inputMessage = string.Empty;
+
+        // Add user message
+        var userMsg = new ChatMessage
+        {
+            Content = userMessage,
+            IsUser = true
+        };
+        _currentSession.Messages.Add(userMsg);
+        SessionService.UpdateSession(_currentSession);
+        StateHasChanged();
+
+        try
+        {
+            // Get agent responses
+            var responses = await AgentChatService.SendMessageAsync(userMessage, _currentSession.Messages);
+            
+            // Add agent responses
+            foreach (var response in responses)
+            {
+                _currentSession.Messages.Add(response);
+            }
+            
+            SessionService.UpdateSession(_currentSession);
+        }
+        catch (Exception ex)
+        {
+            // Add error message
+            _currentSession.Messages.Add(new ChatMessage
+            {
+                AgentId = "system",
+                AgentName = "System",
+                AgentAvatar = "⚠️",
+                Content = $"Error: {ex.Message}. Please check your Azure OpenAI configuration.",
+                IsUser = false
+            });
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+}
