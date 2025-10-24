@@ -1,54 +1,26 @@
+using AgentGroupChat.Web;
 using AgentGroupChat.Web.Components;
 using AgentGroupChat.Web.Services;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using MudBlazor.Services;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
-// Add service defaults & Aspire client integrations.
-builder.AddServiceDefaults();
-
-// Add services to the container.
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
-
-builder.Services.AddOutputCache();
+// Add root components
+builder.RootComponents.Add<App>("#app");
+builder.RootComponents.Add<HeadOutlet>("head::after");
 
 // Add MudBlazor services
 builder.Services.AddMudServices();
 
-// This URL uses "https+http://" to indicate HTTPS is preferred over HTTP.
-// Learn more about service discovery scheme resolution at https://aka.ms/dotnet/sdschemes.
-// NOTE: When running with Aspire, use: new("https+http://agenthost")
-// For standalone testing without Aspire, use: new("https://localhost:7390") or new("http://localhost:5390")
-Uri baseAddress = new("https+http://agenthost");
+// Get the base address from configuration or use a default
+// For Aspire, this will be set via appsettings
+var agentHostUrl = builder.Configuration["AgentHostUrl"] ?? "https://localhost:7390";
 
 // Add HttpClient for AgentHost API communication
-builder.Services.AddHttpClient<AgentHostClient>(client => 
-{
-    client.BaseAddress = baseAddress;
-    client.Timeout = TimeSpan.FromMinutes(5); // Allow long-running agent responses
-});
+builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(agentHostUrl) });
 
-var app = builder.Build();
+builder.Services.AddScoped<AgentHostClient>();
 
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
-}
-
-app.UseHttpsRedirection();
-
-app.UseAntiforgery();
-
-app.UseOutputCache();
-
-app.MapStaticAssets();
-
-app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
-
-app.MapDefaultEndpoints();
-
-app.Run();
+await builder.Build().RunAsync();
