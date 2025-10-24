@@ -14,6 +14,9 @@
 # LiteDB database files
 **/Data/
 
+# Bootstrap library files (can be restored via libman)
+**/wwwroot/lib/
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
