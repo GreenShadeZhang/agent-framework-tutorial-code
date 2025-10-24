@@ -2,17 +2,101 @@
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Agent Group Chat</title>
     <base href="/" />
+    
+    <!-- MudBlazor CSS (includes Roboto font and Material Icons) -->
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    
+    <!-- App CSS -->
     <link rel="stylesheet" href="app.css" />
+    
     <link rel="icon" type="image/png" href="favicon.png" />
+    
+    <style>
+        /* Prevent white flash - set background immediately */
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background: #F9FAFB;
+            font-family: Roboto, sans-serif;
+        }
+        
+        /* Loading styles */
+        #app {
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #F9FAFB;
+        }
+        
+        /* Show during loading, will be replaced by Blazor */
+        #app:empty::after {
+            content: '';
+            display: block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #E5E7EB;
+            border-top: 4px solid #8B5CF6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        .loading-container {
+            text-align: center;
+        }
+        
+        .loading-spinner {
+            border: 4px solid #E5E7EB;
+            border-top: 4px solid #8B5CF6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Error UI styles */
+        #blazor-error-ui {
+            background: #FEF3C7;
+            border-top: 1px solid #FCD34D;
+            bottom: 0;
+            box-shadow: 0 -1px 5px rgba(0, 0, 0, 0.2);
+            display: none;
+            left: 0;
+            padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+            position: fixed;
+            width: 100%;
+            z-index: 1000;
+        }
+
+        #blazor-error-ui .dismiss {
+            cursor: pointer;
+            position: absolute;
+            right: 0.75rem;
+            top: 0.5rem;
+            font-size: 1.2rem;
+        }
+        
+        #blazor-error-ui a {
+            color: #92400E;
+            text-decoration: underline;
+        }
+    </style>
 </head>
 <body>
     <div id="app">
-        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); text-align:center;">
-            <p style="font-size:1.5rem;">Loading...</p>
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <p style="font-size:1.2rem; color: #666;">Loading Agent Group Chat...</p>
         </div>
     </div>
 
@@ -21,6 +105,7 @@
         <a href="" class="reload">Reload</a>
         <a class="dismiss">🗙</a>
     </div>
+    
     <script src="_framework/blazor.webassembly.js"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>

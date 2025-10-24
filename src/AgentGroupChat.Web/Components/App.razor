@@ -1,3 +1,10 @@
+@using AgentGroupChat.Web.Theme
+
+<MudThemeProvider Theme="@CustomTheme.VioletTheme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
 <Router AppAssembly="@typeof(App).Assembly">
     <Found Context="routeData">
         <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
@@ -6,7 +13,12 @@
     <NotFound>
         <PageTitle>Not found</PageTitle>
         <LayoutView Layout="@typeof(MainLayout)">
-            <p role="alert">Sorry, there's nothing at this address.</p>
+            <MudText Typo="Typo.h1" Align="Align.Center" Class="mt-8">
+                404 - Page Not Found
+            </MudText>
+            <MudText Align="Align.Center" Class="mt-4">
+                Sorry, there's nothing at this address.
+            </MudText>
         </LayoutView>
     </NotFound>
 </Router>
