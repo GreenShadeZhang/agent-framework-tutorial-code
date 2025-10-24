@@ -70,12 +70,13 @@ a:hover, .btn-link:hover {
 /* Chat Container - Professional Layout */
 .chat-container {
     display: flex;
-    height: calc(100vh - 140px); /* Account for header and footer */
-    background-color: var(--background);
-    border-radius: 12px;
+    height: calc(100vh - 160px); /* Account for header and footer with better spacing */
+    background-color: var(--surface);
+    border-radius: 16px;
     overflow: hidden;
     box-shadow: var(--shadow-lg);
     margin: 1.5rem;
+    border: 1px solid var(--border-color);
 }
 
 /* Sidebar - Conversation List */
@@ -175,7 +176,7 @@ a:hover, .btn-link:hover {
 
 .chat-header {
     padding: 1.5rem 2rem;
-    background: var(--surface);
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.03) 0%, rgba(118, 75, 162, 0.03) 100%);
     border-bottom: 2px solid var(--border-color);
     box-shadow: var(--shadow-sm);
 }
@@ -184,7 +185,10 @@ a:hover, .btn-link:hover {
     margin: 0 0 0.75rem 0;
     font-size: 1.75rem;
     font-weight: 700;
-    color: var(--text-primary);
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     display: flex;
     align-items: center;
     gap: 0.75rem;
