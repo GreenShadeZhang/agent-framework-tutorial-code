@@ -29,9 +29,13 @@ public class AgentChatService
                             Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT_NAME") ?? 
                             "gpt-4o-mini";
 
-        var azureClient = new AzureOpenAIClient(new Uri(endpoint), new DefaultAzureCredential())
+        var apiKey = configuration["AzureOpenAI:ApiKey"] ?? 
+                     Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY") ?? 
+                     throw new InvalidOperationException("Azure OpenAI API key not configured");
+
+        var azureClient = new AzureOpenAIClient(new Uri(endpoint), new System.ClientModel.ApiKeyCredential(apiKey))
             .GetChatClient(deploymentName);
-        _chatClient = azureClient as IChatClient ?? throw new InvalidOperationException("Failed to get chat client");
+        _chatClient = azureClient.AsIChatClient() ?? throw new InvalidOperationException("Failed to get chat client");
 
         _imageTool = new ImageGenerationTool();
 
@@ -97,9 +101,10 @@ public class AgentChatService
         // Create triage agent for routing
         var triageAgent = new ChatClientAgent(_chatClient,
             "You are a triage agent that routes messages to the appropriate agent based on mentions. " +
-            "When a user mentions an agent with @AgentName, handoff to that agent. " +
+            "When a user mentions an agent with @AgentName, you MUST handoff to that agent immediately. " +
             "Available agents: @Sunny (cheerful), @Techie (tech-savvy), @Artsy (artistic), @Foodie (food-loving). " +
-            "If no specific agent is mentioned, respond with a friendly greeting and list available agents.",
+            "ALWAYS handoff to another agent. Do NOT respond yourself - only route to the appropriate agent. " +
+            "If no specific agent is mentioned, handoff to Sunny.",
             "triage",
             "Routes messages to the appropriate agent");
 
@@ -117,8 +122,13 @@ public class AgentChatService
 
     public List<AgentProfile> GetAgentProfiles() => _agentProfiles;
 
-    public AgentProfile? GetAgentProfile(string agentId) => 
-        _agentProfiles.FirstOrDefault(a => a.Id.Equals(agentId, StringComparison.OrdinalIgnoreCase));
+    public AgentProfile? GetAgentProfile(string agentId)
+    {
+        // ExecutorId 可能包含 GUID 后缀，例如: "sunny_db729ea04d044192a874ec1478913318"
+        // 需要提取前缀部分来匹配 agent profile
+        var agentIdPrefix = agentId.Contains('_') ? agentId.Split('_')[0] : agentId;
+        return _agentProfiles.FirstOrDefault(a => a.Id.Equals(agentIdPrefix, StringComparison.OrdinalIgnoreCase));
+    }
 
     public async Task<List<Models.ChatMessage>> SendMessageAsync(string message, List<Models.ChatMessage> history)
     {
@@ -141,8 +151,13 @@ public class AgentChatService
 
             await foreach (WorkflowEvent evt in run.WatchStreamAsync())
             {
+                // Debug logging
+                Console.WriteLine($"[DEBUG] Event type: {evt.GetType().Name}");
+                
                 if (evt is AgentRunUpdateEvent updateEvent)
                 {
+                    Console.WriteLine($"[DEBUG] AgentRunUpdateEvent - ExecutorId: {updateEvent.ExecutorId}, Update.Text: '{updateEvent.Update.Text}'");
+                    
                     if (updateEvent.ExecutorId != currentAgentId)
                     {
                         // Save previous agent's message if any
@@ -165,7 +180,23 @@ public class AgentChatService
                         currentAgentId = updateEvent.ExecutorId;
                     }
 
-                    responseText.Append(updateEvent.Update.Text);
+                    // Get text from the update - handle both Text property and Contents
+                    var updateText = updateEvent.Update.Text;
+                    if (!string.IsNullOrEmpty(updateText))
+                    {
+                        responseText.Append(updateText);
+                    }
+                    else if (updateEvent.Update.Contents != null)
+                    {
+                        // Extract text from Contents collection
+                        foreach (var content in updateEvent.Update.Contents)
+                        {
+                            if (content is Microsoft.Extensions.AI.TextContent textContent)
+                            {
+                                responseText.Append(textContent.Text);
+                            }
+                        }
+                    }
                 }
                 else if (evt is WorkflowOutputEvent)
                 {
