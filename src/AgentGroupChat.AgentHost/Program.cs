@@ -38,11 +38,15 @@ builder.Services.AddSingleton<LiteDatabase>(sp =>
 builder.Services.AddSingleton<AgentRepository>();
 builder.Services.AddSingleton<AgentGroupRepository>();
 
-// Register IChatClient for WorkflowManager
+// Register IChatClient for WorkflowManager with detailed logging
 builder.Services.AddSingleton<IChatClient>(sp =>
 {
     var configuration = sp.GetRequiredService<IConfiguration>();
+    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+    var logger = loggerFactory.CreateLogger("ChatClient");
     var defaultModelProvider = configuration["DefaultModelProvider"] ?? "AzureOpenAI";
+
+    IChatClient baseChatClient;
 
     if (defaultModelProvider == "AzureOpenAI")
     {
@@ -56,9 +60,12 @@ builder.Services.AddSingleton<IChatClient>(sp =>
                      Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY") ??
                      throw new InvalidOperationException("Azure OpenAI API key not configured");
 
+        logger.LogInformation("🔧 Initializing Azure OpenAI client: Endpoint={Endpoint}, Deployment={Deployment}", 
+            endpoint, deploymentName);
+
         var azureClient = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey))
             .GetChatClient(deploymentName);
-        return azureClient.AsIChatClient() ?? throw new InvalidOperationException("Failed to get chat client");
+        baseChatClient = azureClient.AsIChatClient() ?? throw new InvalidOperationException("Failed to get chat client");
     }
     else if (defaultModelProvider == "OpenAI")
     {
@@ -72,17 +79,26 @@ builder.Services.AddSingleton<IChatClient>(sp =>
                         Environment.GetEnvironmentVariable("OPENAI_API_KEY") ??
                         throw new InvalidOperationException("OpenAI API key not configured");
 
+        logger.LogInformation("🔧 Initializing OpenAI client: BaseUrl={BaseUrl}, Model={Model}", 
+            string.IsNullOrEmpty(baseUrl) ? "default" : baseUrl, modelName);
+
         var options = !string.IsNullOrEmpty(baseUrl) ?
               new OpenAIClientOptions { Endpoint = new Uri(baseUrl) } : null;
         var openAiClient = new OpenAIClient(new ApiKeyCredential(apiKey), options);
 
-        return openAiClient.GetChatClient(modelName).AsIChatClient()
+        baseChatClient = openAiClient.GetChatClient(modelName).AsIChatClient()
             ?? throw new InvalidOperationException("Failed to get chat client");
     }
     else
     {
         throw new InvalidOperationException($"Unsupported DefaultModelProvider: {defaultModelProvider}");
     }
+
+    // Use Microsoft.Extensions.AI built-in logging support
+    // This will automatically log all requests/responses with structured logging
+    return new ChatClientBuilder(baseChatClient)
+        .UseLogging(loggerFactory)
+        .Build();
 });
 
 // Register custom services

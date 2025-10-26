@@ -103,15 +103,20 @@ public class WorkflowManager
         var triageInstructions = GenerateTriageInstructions(group, agentProfiles);
 
         // 创建 Triage Agent（不使用 MCP 工具，只负责路由）
+        // ⚠️ 重要：Agent name 必须简短，因为框架会基于它生成 handoff 函数名
+        // OpenAI API 限制工具函数名最多 64 字符
+        // 格式：handoff_to_{agent_name}_{guid} 
+        // 所以 agent_name 应该尽量短（建议 < 20 字符）
         var triageAgent = new ChatClientAgent(
             _chatClient,
             instructions: triageInstructions,
-            name: $"triage_{groupId}",
+            name: $"triage",  // 简化名称，不包含 groupId
             description: $"Router for {group.Name}");
 
         _logger?.LogDebug("Created triage agent for group {GroupId} (no tools)", groupId);
 
         // 创建 Specialist Agents（使用 MCP 工具）
+        // ⚠️ 同样的原因，使用简短的 agent name
         var specialistAgents = agentProfiles.Select(profile =>
             new ChatClientAgent(
                 _chatClient,
@@ -124,7 +129,7 @@ public class WorkflowManager
                     "\n- 对于图像URL，描述生成的内容并提供链接。" +
                     "\n- 对于数据结果，以易读的方式总结关键信息。" +
                     "\n- 永远不要只返回原始工具输出 - 始终添加上下文和解释。",
-                name: profile.Id,
+                name: profile.Id,  // 使用简短的 ID（如 "anna", "elena"）
                 description: profile.Description,
                 tools: [.. mcpTools])  // 为 Specialist Agents 添加 MCP 工具
         ).ToList();

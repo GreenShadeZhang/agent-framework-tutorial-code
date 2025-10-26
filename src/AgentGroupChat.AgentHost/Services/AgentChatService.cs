@@ -71,14 +71,20 @@ public class AgentChatService
             // 使用默认组如果未指定
             groupId ??= DefaultGroupId;
             
-            _logger?.LogDebug("Processing message for session {SessionId} using group {GroupId}: {Message}", 
-                sessionId, groupId, message);
+            _logger?.LogInformation(
+                "🚀 Starting SendMessageAsync | SessionId: {SessionId} | GroupId: {GroupId} | Message Length: {Length}", 
+                sessionId, groupId, message?.Length ?? 0);
+            
+            _logger?.LogDebug("📝 User Message: {Message}", message);
 
             // 1️⃣ 准备消息列表（包含历史消息）
             var messages = new List<AIChatMessage>();
 
             // 从数据库加载历史消息
+            _logger?.LogDebug("📚 Loading message history for session {SessionId}", sessionId);
             var history = _sessionService.GetMessageSummaries(sessionId);
+            _logger?.LogInformation("📚 Loaded {Count} historical messages", history.Count);
+            
             foreach (var historyMsg in history)
             {
                 if (historyMsg.IsUser)
@@ -93,13 +99,19 @@ public class AgentChatService
 
             // 添加当前用户消息
             messages.Add(new AIChatMessage(ChatRole.User, message));
+            _logger?.LogInformation("📋 Total messages prepared for LLM: {Count} (History: {HistoryCount} + Current: 1)", 
+                messages.Count, history.Count);
 
             // 2️⃣ 获取该组的 Workflow
+            _logger?.LogDebug("🔧 Getting workflow for group {GroupId}", groupId);
             Workflow workflow = _workflowManager.GetOrCreateWorkflow(groupId);
+            _logger?.LogInformation("✅ Workflow ready for group {GroupId}", groupId);
 
             // 3️⃣ 运行 Workflow
+            _logger?.LogInformation("▶️ Starting workflow execution...");
             await using StreamingRun run = await InProcessExecution.StreamAsync(workflow, messages);
             await run.TrySendMessageAsync(new TurnToken(emitEvents: true));
+            _logger?.LogDebug("📡 Workflow started, watching event stream...");
 
             // 4️⃣ 处理 WorkflowEvent 流，追踪不同 agent 的执行
             string? currentExecutorId = null;
@@ -306,14 +318,28 @@ public class AgentChatService
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error processing message for session {SessionId}", sessionId);
+            _logger?.LogError(ex, 
+                "🔴 Critical Error in SendMessageAsync | SessionId: {SessionId} | GroupId: {GroupId} | Exception Type: {ExceptionType} | Message: {ErrorMessage} | StackTrace: {StackTrace}",
+                sessionId, groupId, ex.GetType().FullName, ex.Message, ex.StackTrace);
+
+            // Log inner exceptions
+            var innerEx = ex.InnerException;
+            var depth = 1;
+            while (innerEx != null)
+            {
+                _logger?.LogError(
+                    "  ↳ Inner Exception [{Depth}] | Type: {ExceptionType} | Message: {ErrorMessage}",
+                    depth, innerEx.GetType().FullName, innerEx.Message);
+                innerEx = innerEx.InnerException;
+                depth++;
+            }
 
             summaries.Add(new ChatMessageSummary
             {
                 AgentId = "system",
                 AgentName = "System",
                 AgentAvatar = "⚠️",
-                Content = $"Error: {ex.Message}",
+                Content = $"Error: {ex.Message}\n\nType: {ex.GetType().Name}\n\n请查看服务器日志获取详细信息。",
                 IsUser = false,
                 MessageType = "error",
                 Timestamp = DateTime.UtcNow
