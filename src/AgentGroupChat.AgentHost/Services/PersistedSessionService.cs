@@ -7,14 +7,16 @@ using Microsoft.Extensions.Logging;
 namespace AgentGroupChat.AgentHost.Services;
 
 /// <summary>
-/// 基于 LiteDB 的会话持久化服务
+/// 基于 LiteDB 的会话持久化服务（重构版）
 /// 支持 Agent Framework 的 AgentThread 序列化和反序列化
-/// 结合官方示例的持久化机制和 LiteDB 的轻量级存储
+/// 优化：消息存储在独立的 messages 集合中，Thread 只保存最小元数据
+/// 参考 Agent Framework Step06 和 Step07 的最佳实践
 /// </summary>
 public class PersistedSessionService : IDisposable
 {
     private readonly LiteDatabase _database;
     private readonly ILiteCollection<PersistedChatSession> _sessions;
+    private readonly ILiteCollection<PersistedChatMessage> _messages;
     private readonly ILogger<PersistedSessionService>? _logger;
     
     // 内存缓存：热会话（最近访问的会话）
@@ -33,12 +35,20 @@ public class PersistedSessionService : IDisposable
         
         var dbFilePath = Path.Combine(dbPath, "sessions.db");
         _database = new LiteDatabase(dbFilePath);
+        
+        // 获取会话和消息集合
         _sessions = _database.GetCollection<PersistedChatSession>("sessions");
+        _messages = _database.GetCollection<PersistedChatMessage>("messages");
         
         // 创建索引以优化查询性能
         _sessions.EnsureIndex(x => x.Id);
         _sessions.EnsureIndex(x => x.LastUpdated);
         _sessions.EnsureIndex(x => x.IsActive);
+        
+        // 为消息集合创建索引
+        _messages.EnsureIndex(x => x.SessionId);
+        _messages.EnsureIndex(x => x.Timestamp);
+        _messages.EnsureIndex(x => x.Id);
         
         _logger?.LogInformation("PersistedSessionService initialized with database at: {DbPath}", dbFilePath);
     }
@@ -216,10 +226,10 @@ public class PersistedSessionService : IDisposable
     #region AgentThread 持久化核心功能
 
     /// <summary>
-    /// 保存 AgentThread 到会话
-    /// 这是核心方法，实现官方示例的 thread.Serialize() 机制
+    /// 保存 AgentThread 到会话（优化版）
+    /// Thread 序列化数据只包含最小元数据（SessionId），消息由 ChatMessageStore 管理
     /// </summary>
-    public void SaveThread(string sessionId, AgentThread thread, List<ChatMessageSummary>? summaries = null)
+    public void SaveThread(string sessionId, AgentThread thread)
     {
         try
         {
@@ -229,18 +239,28 @@ public class PersistedSessionService : IDisposable
                 throw new InvalidOperationException($"Session {sessionId} not found");
             }
 
-            // 序列化 AgentThread（官方机制）
+            // 序列化 AgentThread（现在只包含 SessionId 等元数据，不包含消息）
             JsonElement serializedThread = thread.Serialize();
             session.ThreadData = System.Text.Json.JsonSerializer.Serialize(serializedThread, new JsonSerializerOptions 
             { 
                 WriteIndented = false // 紧凑格式以节省空间
             });
             
-            // 更新摘要（如果提供）
-            if (summaries != null)
+            // 更新消息统计（从 messages 集合计算）
+            session.MessageCount = _messages.Count(m => m.SessionId == sessionId);
+            
+            // 更新最后消息预览
+            var lastMessage = _messages
+                .Find(m => m.SessionId == sessionId)
+                .OrderByDescending(m => m.Timestamp)
+                .FirstOrDefault();
+            
+            if (lastMessage != null)
             {
-                session.MessageSummaries = summaries;
-                session.MessageCount = summaries.Count;
+                session.LastMessagePreview = lastMessage.MessageText?.Length > 50 
+                    ? lastMessage.MessageText.Substring(0, 50) + "..." 
+                    : lastMessage.MessageText;
+                session.LastMessageSender = lastMessage.AgentName ?? (lastMessage.IsUser ? "User" : "Agent");
             }
             
             session.LastUpdated = DateTime.UtcNow;
@@ -314,6 +334,74 @@ public class PersistedSessionService : IDisposable
         return newThread;
     }
 
+    /// <summary>
+    /// 获取 LiteDB 消息集合的引用（用于 ChatMessageStore）
+    /// </summary>
+    public ILiteCollection<PersistedChatMessage> GetMessagesCollection()
+    {
+        return _messages;
+    }
+
+    /// <summary>
+    /// 获取会话的消息摘要（用于 UI 展示）
+    /// </summary>
+    public List<ChatMessageSummary> GetMessageSummaries(string sessionId)
+    {
+        try
+        {
+            var messages = _messages
+                .Find(m => m.SessionId == sessionId)
+                .OrderBy(m => m.Timestamp)
+                .ToList();
+
+            return messages.Select(pm => new ChatMessageSummary
+            {
+                AgentId = pm.AgentId ?? "user",
+                AgentName = pm.AgentName ?? "User",
+                Content = pm.MessageText ?? string.Empty,
+                ImageUrl = pm.ImageUrl,
+                IsUser = pm.IsUser,
+                Timestamp = pm.Timestamp.UtcDateTime,
+                MessageType = string.IsNullOrEmpty(pm.ImageUrl) ? "text" : "image"
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error getting message summaries for session {SessionId}", sessionId);
+            return new List<ChatMessageSummary>();
+        }
+    }
+
+    /// <summary>
+    /// 清除会话的所有消息
+    /// </summary>
+    public void ClearSessionMessages(string sessionId)
+    {
+        try
+        {
+            _messages.DeleteMany(m => m.SessionId == sessionId);
+            
+            // 更新会话统计
+            var session = GetSession(sessionId);
+            if (session != null)
+            {
+                session.MessageCount = 0;
+                session.LastMessagePreview = null;
+                session.LastMessageSender = null;
+                session.LastUpdated = DateTime.UtcNow;
+                _sessions.Update(session);
+                UpdateCache(sessionId, session);
+            }
+            
+            _logger?.LogInformation("Cleared all messages for session {SessionId}", sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error clearing messages for session {SessionId}", sessionId);
+            throw;
+        }
+    }
+
     #endregion
 
     #region 缓存管理
@@ -371,12 +459,15 @@ public class PersistedSessionService : IDisposable
     /// </summary>
     public Dictionary<string, object> GetStatistics()
     {
+        var dbFileInfo = new FileInfo(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "sessions.db"));
+        
         return new Dictionary<string, object>
         {
             { "TotalSessions", _sessions.Count() },
             { "ActiveSessions", _sessions.Count(x => x.IsActive) },
+            { "TotalMessages", _messages.Count() },
             { "CachedSessions", _hotCache.Count },
-            { "DatabaseSizeBytes", new FileInfo(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "sessions.db")).Length }
+            { "DatabaseSizeBytes", dbFileInfo.Exists ? dbFileInfo.Length : 0 }
         };
     }
 

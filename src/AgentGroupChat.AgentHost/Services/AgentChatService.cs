@@ -4,46 +4,52 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OpenAI;
 using System.ClientModel;
+using System.Text.Json;
 
 namespace AgentGroupChat.AgentHost.Services;
 
 /// <summary>
-/// Service for managing multi-agent chat with persistence support.
+/// Service for managing multi-agent chat with persistence support (重构版)
 /// 使用 AIAgent 和 AgentThread 实现官方推荐的持久化机制
+/// 集成 LiteDbChatMessageStore，消息和 Thread 状态分离存储
+/// 参考 Agent Framework Step06 和 Step07 的最佳实践
 /// </summary>
 public class AgentChatService
 {
     private readonly IChatClient _chatClient;
     private readonly List<AgentProfile> _agentProfiles;
-    private readonly Dictionary<string, AIAgent> _aiAgents;
-    private readonly AIAgent _triageAgent;
+    private readonly PersistedSessionService _sessionService;
     private readonly ImageGenerationTool _imageTool;
     private readonly ILogger<AgentChatService>? _logger;
+    private readonly ILogger<LiteDbChatMessageStore>? _storeLogger;
 
-    public AgentChatService(IConfiguration configuration, ILogger<AgentChatService>? logger = null)
+    public AgentChatService(
+        IConfiguration configuration, 
+        PersistedSessionService sessionService,
+        ILogger<AgentChatService>? logger = null,
+        ILogger<LiteDbChatMessageStore>? storeLogger = null)
     {
         _logger = logger;
+        _storeLogger = storeLogger;
+        _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
 
         var defaultModelProvider = configuration["DefaultModelProvider"] ?? "AzureOpenAI";
 
         if (defaultModelProvider == "AzureOpenAI")
         {
-            // Initialize OpenAI client
             var endpoint = configuration["AzureOpenAI:Endpoint"] ??
                           Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ??
                           throw new InvalidOperationException("Azure OpenAI endpoint not configured");
             var deploymentName = configuration["AzureOpenAI:DeploymentName"] ??
                                 Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT_NAME") ??
                                 "gpt-4o-mini";
-
             var apiKey = configuration["AzureOpenAI:ApiKey"] ??
                          Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY") ??
                          throw new InvalidOperationException("Azure OpenAI API key not configured");
 
-            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new System.ClientModel.ApiKeyCredential(apiKey))
+            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey))
                 .GetChatClient(deploymentName);
             _chatClient = azureClient.AsIChatClient() ?? throw new InvalidOperationException("Failed to get chat client");
-
         }
         else if (defaultModelProvider == "OpenAI")
         {
@@ -66,12 +72,12 @@ public class AgentChatService
         }
         else
         {
-            throw new InvalidOperationException($"Unsupported DefaultModelProvider: {defaultModelProvider}. Supported providers are 'AzureOpenAI' and 'OpenAI'.");
+            throw new InvalidOperationException($"Unsupported DefaultModelProvider: {defaultModelProvider}");
         }
 
         _imageTool = new ImageGenerationTool();
 
-        // Define agent profiles with different personalities
+        // Define agent profiles
         _agentProfiles = new List<AgentProfile>
         {
             new AgentProfile
@@ -119,50 +125,83 @@ public class AgentChatService
                 Description = "The food enthusiast who loves to eat and cook"
             }
         };
-
-        // Create AIAgents using the official Agent Framework
-        _aiAgents = new Dictionary<string, AIAgent>();
-        foreach (var profile in _agentProfiles)
-        {
-            var agent = _chatClient.CreateAIAgent(
-                instructions: profile.SystemPrompt,
-                name: profile.Name
-            );
-            _aiAgents[profile.Id] = agent;
-            
-            _logger?.LogDebug("Created AIAgent: {AgentId} ({AgentName})", profile.Id, profile.Name);
-        }
-
-        // Create triage agent for routing (主控 Agent)
-        _triageAgent = _chatClient.CreateAIAgent(
-            instructions: "You are a helpful AI assistant that manages a group chat with multiple agents. " +
-                         "When users mention @AgentName, you help route the conversation. " +
-                         "Available agents: @Sunny (cheerful), @Techie (tech-savvy), @Artsy (artistic), @Foodie (food-loving). " +
-                         "If no specific agent is mentioned, respond naturally yourself or suggest an appropriate agent. " +
-                         "Keep responses concise and friendly.",
-            name: "Triage"
-        );
         
-        _logger?.LogInformation("AgentChatService initialized with {Count} agents", _aiAgents.Count);
+        _logger?.LogInformation("AgentChatService initialized with {Count} agent profiles", _agentProfiles.Count);
     }
 
     public List<AgentProfile> GetAgentProfiles() => _agentProfiles;
 
     public AgentProfile? GetAgentProfile(string agentId)
     {
-        // ExecutorId 可能包含后缀，需要提取前缀
         var agentIdPrefix = agentId.Contains('_') ? agentId.Split('_')[0] : agentId;
         return _agentProfiles.FirstOrDefault(a => a.Id.Equals(agentIdPrefix, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
-    /// 发送消息并使用 AgentThread 管理对话
-    /// 这是核心方法，实现基于 Thread 的持久化对话
+    /// 为指定会话和 Agent 创建 AIAgent（带 ChatMessageStoreFactory）
+    /// 这是核心改进：每个会话的 Thread 都有独立的 LiteDbChatMessageStore
     /// </summary>
-    public async Task<List<ChatMessageSummary>> SendMessageAsync(
-        string message, 
-        string sessionId,
-        PersistedSessionService sessionService)
+    private AIAgent CreateAgentForSession(string sessionId, AgentProfile? profile = null)
+    {
+        var instructions = profile?.SystemPrompt ?? 
+            "You are a helpful AI assistant that manages a group chat with multiple agents. " +
+            "When users mention @AgentName, you help route the conversation. " +
+            "Available agents: @Sunny (cheerful), @Techie (tech-savvy), @Artsy (artistic), @Foodie (food-loving). " +
+            "If no specific agent is mentioned, respond naturally yourself or suggest an appropriate agent. " +
+            "Keep responses concise and friendly.";
+        
+        var name = profile?.Name ?? "Assistant";
+
+        var agent = _chatClient.CreateAIAgent(new ChatClientAgentOptions
+        {
+            Instructions = instructions,
+            Name = name,
+            ChatMessageStoreFactory = ctx =>
+            {
+                // 关键：注入自定义的 LiteDbChatMessageStore
+                var messagesCollection = _sessionService.GetMessagesCollection();
+                
+                // 如果有序列化状态（恢复会话），使用状态中的 SessionId
+                // 否则使用当前 sessionId（新会话）
+                if (ctx.SerializedState.ValueKind is JsonValueKind.String && 
+                    !string.IsNullOrEmpty(ctx.SerializedState.GetString()))
+                {
+                    return new LiteDbChatMessageStore(messagesCollection, ctx.SerializedState, _storeLogger);
+                }
+                else
+                {
+                    return new LiteDbChatMessageStore(messagesCollection, sessionId, _storeLogger);
+                }
+            }
+        });
+
+        _logger?.LogDebug("Created AIAgent '{AgentName}' for session {SessionId}", name, sessionId);
+        return agent;
+    }
+
+    /// <summary>
+    /// 获取或创建 AgentThread（自动加载历史或创建新 Thread）
+    /// </summary>
+    private AgentThread GetOrCreateThread(string sessionId, AIAgent agent)
+    {
+        // 尝试从数据库加载
+        var thread = _sessionService.LoadThread(sessionId, agent);
+        if (thread != null)
+        {
+            _logger?.LogDebug("Loaded existing thread for session {SessionId}", sessionId);
+            return thread;
+        }
+
+        // 创建新 Thread
+        var newThread = agent.GetNewThread();
+        _logger?.LogDebug("Created new thread for session {SessionId}", sessionId);
+        return newThread;
+    }
+
+    /// <summary>
+    /// 发送消息并使用 AgentThread 管理对话（重构版）
+    /// </summary>
+    public async Task<List<ChatMessageSummary>> SendMessageAsync(string message, string sessionId)
     {
         var summaries = new List<ChatMessageSummary>();
 
@@ -170,10 +209,19 @@ public class AgentChatService
         {
             _logger?.LogDebug("Processing message for session {SessionId}: {Message}", sessionId, message);
 
-            // 1. 获取或创建 AgentThread
-            AgentThread thread = sessionService.GetOrCreateThread(sessionId, _triageAgent);
+            // 1. 检测提到的 Agent
+            var mentionedAgent = DetectMentionedAgent(message);
+            string agentId = mentionedAgent?.Id ?? "triage";
+            string agentName = mentionedAgent?.Name ?? "Assistant";
+            string agentAvatar = mentionedAgent?.Avatar ?? "🤖";
 
-            // 2. 添加用户消息摘要
+            // 2. 为当前会话创建 AIAgent（带 ChatMessageStoreFactory）
+            var agent = CreateAgentForSession(sessionId, mentionedAgent);
+
+            // 3. 获取或创建 AgentThread
+            var thread = GetOrCreateThread(sessionId, agent);
+
+            // 4. 添加用户消息摘要
             summaries.Add(new ChatMessageSummary
             {
                 Content = message,
@@ -182,20 +230,13 @@ public class AgentChatService
                 MessageType = "text"
             });
 
-            // 3. 检查是否有 @mention
-            var mentionedAgent = DetectMentionedAgent(message);
-            AIAgent targetAgent = mentionedAgent != null ? _aiAgents[mentionedAgent.Id] : _triageAgent;
-            string agentId = mentionedAgent?.Id ?? "triage";
-            string agentName = mentionedAgent?.Name ?? "Assistant";
-            string agentAvatar = mentionedAgent?.Avatar ?? "🤖";
-
-            // 4. 运行对话 (使用官方 RunAsync 方法)
-            var agentResponse = await targetAgent.RunAsync(message, thread);
+            // 5. 运行对话（消息自动保存到 LiteDbChatMessageStore）
+            var agentResponse = await agent.RunAsync(message, thread);
             string response = agentResponse.Text ?? agentResponse.ToString();
 
             _logger?.LogDebug("Agent {AgentId} responded: {Response}", agentId, response);
 
-            // 5. 添加 Agent 响应摘要
+            // 6. 添加 Agent 响应摘要
             summaries.Add(new ChatMessageSummary
             {
                 AgentId = agentId,
@@ -207,7 +248,7 @@ public class AgentChatService
                 MessageType = "text"
             });
 
-            // 6. 检查是否需要生成图片
+            // 7. 检查是否需要生成图片
             if (ShouldGenerateImage(response))
             {
                 try
@@ -233,16 +274,11 @@ public class AgentChatService
                 }
             }
 
-            // 7. 保存 Thread 到数据库（关键步骤！）
-            // 获取当前会话的所有历史摘要
-            var session = sessionService.GetSession(sessionId);
-            var allSummaries = session?.MessageSummaries ?? new List<ChatMessageSummary>();
-            allSummaries.AddRange(summaries);
-
-            sessionService.SaveThread(sessionId, thread, allSummaries);
+            // 8. 保存 Thread 到数据库（关键步骤！）
+            // 注意：消息已经通过 ChatMessageStore 自动保存，这里只保存 Thread 元数据
+            _sessionService.SaveThread(sessionId, thread);
             
-            _logger?.LogInformation("Saved thread for session {SessionId}, total messages: {Count}", 
-                sessionId, allSummaries.Count);
+            _logger?.LogInformation("Saved thread for session {SessionId}", sessionId);
 
             return summaries;
         }
@@ -250,7 +286,6 @@ public class AgentChatService
         {
             _logger?.LogError(ex, "Error processing message for session {SessionId}", sessionId);
             
-            // 返回错误消息
             summaries.Add(new ChatMessageSummary
             {
                 AgentId = "system",
@@ -287,34 +322,25 @@ public class AgentChatService
     /// </summary>
     private bool ShouldGenerateImage(string content)
     {
-        // 简单启发式规则
         var imageKeywords = new[] { "photo", "picture", "image", "show", "look", "see", "here" };
         return imageKeywords.Any(keyword => content.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                && new Random().Next(0, 2) == 0; // 50% 概率
     }
 
     /// <summary>
-    /// 获取会话的对话历史（从摘要）
+    /// 获取会话的对话历史（从 LiteDB messages 集合）
     /// </summary>
-    public List<ChatMessageSummary> GetConversationHistory(string sessionId, PersistedSessionService sessionService)
+    public List<ChatMessageSummary> GetConversationHistory(string sessionId)
     {
-        var session = sessionService.GetSession(sessionId);
-        return session?.MessageSummaries ?? new List<ChatMessageSummary>();
+        return _sessionService.GetMessageSummaries(sessionId);
     }
 
     /// <summary>
-    /// 清除会话的 Thread（重新开始对话）
+    /// 清除会话的 Thread 和所有消息
     /// </summary>
-    public void ClearConversation(string sessionId, PersistedSessionService sessionService)
+    public void ClearConversation(string sessionId)
     {
-        var session = sessionService.GetSession(sessionId);
-        if (session != null)
-        {
-            // 创建新的空 thread
-            var newThread = _triageAgent.GetNewThread();
-            sessionService.SaveThread(sessionId, newThread, new List<ChatMessageSummary>());
-            
-            _logger?.LogInformation("Cleared conversation for session {SessionId}", sessionId);
-        }
+        _sessionService.ClearSessionMessages(sessionId);
+        _logger?.LogInformation("Cleared conversation for session {SessionId}", sessionId);
     }
 }

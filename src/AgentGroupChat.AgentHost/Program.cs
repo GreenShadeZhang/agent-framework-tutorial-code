@@ -121,11 +121,10 @@ app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentServi
     if (session == null)
         return Results.NotFound("Session not found");
 
-    // 发送消息并自动持久化（使用新的 API）
+    // 发送消息并自动持久化（新架构：消息通过 ChatMessageStore 自动保存）
     var responses = await agentService.SendMessageAsync(
         request.Message, 
-        request.SessionId,
-        sessionService);
+        request.SessionId);
 
     return Results.Ok(responses);
 })
@@ -148,7 +147,7 @@ app.MapPost("/api/sessions/{id}/clear", (string id, AgentChatService agentServic
     if (session == null)
         return Results.NotFound("Session not found");
     
-    agentService.ClearConversation(id, sessionService);
+    agentService.ClearConversation(id);
     return Results.Ok();
 })
 .WithName("ClearConversation")
@@ -161,7 +160,7 @@ app.MapGet("/api/sessions/{id}/messages", (string id, AgentChatService agentServ
     if (session == null)
         return Results.NotFound("Session not found");
     
-    var history = agentService.GetConversationHistory(id, sessionService);
+    var history = agentService.GetConversationHistory(id);
     return Results.Ok(history);
 })
 .WithName("GetConversationHistory")
