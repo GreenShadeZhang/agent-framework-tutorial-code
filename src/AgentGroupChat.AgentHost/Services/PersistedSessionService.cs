@@ -362,7 +362,7 @@ public class PersistedSessionService : IDisposable
                 Content = pm.MessageText ?? string.Empty,
                 ImageUrl = pm.ImageUrl,
                 IsUser = pm.IsUser,
-                Timestamp = pm.Timestamp.UtcDateTime,
+                Timestamp = pm.Timestamp.LocalDateTime,
                 MessageType = string.IsNullOrEmpty(pm.ImageUrl) ? "text" : "image"
             }).ToList();
         }
