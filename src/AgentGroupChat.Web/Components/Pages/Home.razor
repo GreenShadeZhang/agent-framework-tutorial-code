@@ -2,6 +2,7 @@
 @using AgentGroupChat.Models
 @using AgentGroupChat.Web.Services
 @inject AgentHostClient AgentHostClient
+@inject IDialogService DialogService
 
 <PageTitle>Agent Group Chat</PageTitle>
 
@@ -27,13 +28,20 @@
         <MudList T="string">
             @foreach (var session in _sessions)
             {
-                <MudListItem OnClick="() => LoadSession(session.Id)" 
-                             Class="@(_currentSession?.Id == session.Id ? "mud-primary-text" : "")"
+                <MudListItem Class="@(_currentSession?.Id == session.Id ? "mud-primary-text" : "")"
                              Style="@(_currentSession?.Id == session.Id ? "background-color: var(--mud-palette-primary-lighten); border-left: 3px solid var(--mud-palette-primary);" : "")"
                              T="string">
-                    <div class="d-flex flex-column" style="width: 100%;">
-                        <MudText Typo="Typo.body1"><strong>@session.Name</strong></MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">@session.LastUpdated.ToString("MMM dd, HH:mm")</MudText>
+                    <div class="d-flex align-center justify-space-between" style="width: 100%;">
+                        <div class="d-flex flex-column flex-grow-1" @onclick="() => LoadSession(session.Id)" style="cursor: pointer;">
+                            <MudText Typo="Typo.body1"><strong>@session.Name</strong></MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">@session.LastUpdated.ToString("MMM dd, HH:mm")</MudText>
+                        </div>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                       Color="Color.Error" 
+                                       Size="Size.Small"
+                                       @onclick="() => DeleteSessionWithConfirmation(session.Id)"
+                                       title="删除会话"
+                                       Class="ml-2" />
                     </div>
                 </MudListItem>
             }
@@ -285,6 +293,84 @@
         if (e.Key == "Enter" && !e.ShiftKey)
         {
             await SendMessage();
+        }
+    }
+
+    /// <summary>
+    /// 删除会话（带确认对话框）
+    /// </summary>
+    private async Task DeleteSessionWithConfirmation(string sessionId)
+    {
+        var session = _sessions.FirstOrDefault(s => s.Id == sessionId);
+        if (session == null) return;
+
+        var parameters = new DialogParameters
+        {
+            ["ContentText"] = $"确定要删除会话 \"{session.Name}\" 吗？此操作将同时删除该会话的所有消息，且不可恢复。",
+            ["ButtonText"] = "删除",
+            ["Color"] = Color.Error
+        };
+
+        var options = new DialogOptions 
+        { 
+            CloseButton = true, 
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true 
+        };
+
+        var dialog = await DialogService.ShowMessageBox(
+            "确认删除", 
+            $"确定要删除会话 \"{session.Name}\" 吗？此操作将同时删除该会话的所有消息，且不可恢复。",
+            yesText: "删除",
+            cancelText: "取消");
+
+        if (dialog == true)
+        {
+            await DeleteSession(sessionId);
+        }
+    }
+
+    /// <summary>
+    /// 删除会话的核心逻辑
+    /// </summary>
+    private async Task DeleteSession(string sessionId)
+    {
+        try
+        {
+            // 调用 API 删除会话（后端会级联删除消息）
+            var success = await AgentHostClient.DeleteSessionAsync(sessionId);
+            
+            if (success)
+            {
+                // 从列表中移除
+                var deletedSession = _sessions.FirstOrDefault(s => s.Id == sessionId);
+                if (deletedSession != null)
+                {
+                    _sessions.Remove(deletedSession);
+                }
+
+                // 如果删除的是当前会话，需要切换到其他会话
+                if (_currentSession?.Id == sessionId)
+                {
+                    if (_sessions.Count > 0)
+                    {
+                        // 切换到第一个会话
+                        await LoadSession(_sessions.First().Id);
+                    }
+                    else
+                    {
+                        // 没有会话了，创建一个新会话
+                        await CreateNewSessionAsync();
+                    }
+                }
+
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting session: {ex.Message}");
+            // 可以添加错误提示
         }
     }
 }

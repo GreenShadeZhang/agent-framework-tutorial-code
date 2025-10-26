@@ -196,18 +196,25 @@ public class PersistedSessionService : IDisposable
     }
 
     /// <summary>
-    /// 删除会话
+    /// 删除会话（级联删除相关消息）
     /// </summary>
     public void DeleteSession(string id)
     {
         try
         {
+            // 先删除该会话的所有消息（级联删除）
+            var deletedMessagesCount = _messages.DeleteMany(m => m.SessionId == id);
+            
+            // 再删除会话本身
             var deleted = _sessions.Delete(id);
+            
+            // 从缓存中移除
             _hotCache.Remove(id);
             
             if (deleted)
             {
-                _logger?.LogInformation("Deleted session {SessionId}", id);
+                _logger?.LogInformation("Deleted session {SessionId} and {MessageCount} related messages", 
+                    id, deletedMessagesCount);
             }
             else
             {
