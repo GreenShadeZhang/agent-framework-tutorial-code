@@ -139,6 +139,7 @@ app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
     {
         s.Id,
         s.Name,
+        s.GroupId,
         s.CreatedAt,
         s.LastUpdated,
         s.MessageCount,
@@ -152,15 +153,16 @@ app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
 .WithOpenApi();
 
 // Create new session
-app.MapPost("/api/sessions", (PersistedSessionService sessionService) =>
+app.MapPost("/api/sessions", (PersistedSessionService sessionService, CreateSessionRequest? request) =>
 {
-    var session = sessionService.CreateSession();
+    var session = sessionService.CreateSession(request?.Name, request?.GroupId);
     
     // 映射到前端模型
     var result = new
     {
         session.Id,
         session.Name,
+        session.GroupId,
         session.CreatedAt,
         session.LastUpdated,
         session.MessageCount,
@@ -185,6 +187,7 @@ app.MapGet("/api/sessions/{id}", (string id, PersistedSessionService sessionServ
     {
         session.Id,
         session.Name,
+        session.GroupId,
         session.CreatedAt,
         session.LastUpdated,
         session.MessageCount,
@@ -207,10 +210,11 @@ app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentServi
     if (session == null)
         return Results.NotFound("Session not found");
 
-    // 发送消息并自动持久化（新架构：消息通过 ChatMessageStore 自动保存）
+    // 使用会话关联的 GroupId 发送消息
     var responses = await agentService.SendMessageAsync(
         request.Message, 
-        request.SessionId);
+        request.SessionId,
+        session.GroupId); // 使用会话的 GroupId
 
     return Results.Ok(responses);
 })
@@ -462,5 +466,6 @@ app.MapDefaultEndpoints();
 
 app.Run();
 
-// Request model for chat endpoint
+// Request models
 public record ChatRequest(string SessionId, string Message);
+public record CreateSessionRequest(string? Name = null, string? GroupId = null);

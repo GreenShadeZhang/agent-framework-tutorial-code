@@ -54,11 +54,12 @@ public class AgentHostClient
     /// <summary>
     /// Create a new chat session.
     /// </summary>
-    public async Task<ChatSession?> CreateSessionAsync()
+    public async Task<ChatSession?> CreateSessionAsync(string? groupId = null, string? name = null)
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("api/sessions", new { });
+            var request = new { Name = name, GroupId = groupId };
+            var response = await _httpClient.PostAsJsonAsync("api/sessions", request);
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<ChatSession>();
         }

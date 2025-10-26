@@ -1,6 +1,5 @@
 using AgentGroupChat.Models;
 using LiteDB;
-using Microsoft.Extensions.Logging;
 
 namespace AgentGroupChat.AgentHost.Services;
 
@@ -17,11 +16,11 @@ public class AgentRepository
     {
         _logger = logger;
         _agents = database.GetCollection<PersistedAgentProfile>("agents");
-        
+
         // 创建索引
         _agents.EnsureIndex(x => x.Id);
         _agents.EnsureIndex(x => x.Enabled);
-        
+
         _logger?.LogInformation("AgentRepository initialized");
     }
 
@@ -55,7 +54,7 @@ public class AgentRepository
     public void Upsert(PersistedAgentProfile agent)
     {
         agent.LastUpdated = DateTime.UtcNow;
-        
+
         var existing = _agents.FindById(agent.Id);
         if (existing != null)
         {

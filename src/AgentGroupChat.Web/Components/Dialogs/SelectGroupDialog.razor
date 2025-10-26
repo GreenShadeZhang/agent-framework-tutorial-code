@@ -1,0 +1,80 @@
+@using AgentGroupChat.Models
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body1" Class="mb-4">
+            请选择一个 Agent Group 来创建新会话：
+        </MudText>
+        
+        @if (Groups != null && Groups.Count > 0)
+        {
+            <MudRadioGroup @bind-Value="_selectedGroupId" T="string">
+                @foreach (var group in Groups)
+                {
+                    <MudRadio Value="@group.Id" Color="Color.Primary" T="string">
+                        <div class="d-flex flex-column my-2">
+                            <MudText Typo="Typo.h6">
+                                <MudIcon Icon="@Icons.Material.Filled.Groups" Class="mr-2" />
+                                @group.Name
+                            </MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="ml-7">
+                                @group.Description
+                            </MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-7 mt-1">
+                                包含 @group.AgentIds.Count 个智能体
+                            </MudText>
+                        </div>
+                    </MudRadio>
+                }
+            </MudRadioGroup>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Warning">
+                没有可用的 Agent Group
+            </MudAlert>
+        }
+    </DialogContent>
+    
+    <DialogActions>
+        <MudButton OnClick="Cancel">取消</MudButton>
+        <MudButton Color="Color.Primary" 
+                   Variant="Variant.Filled" 
+                   OnClick="Submit"
+                   Disabled="@(string.IsNullOrEmpty(_selectedGroupId))">
+            创建会话
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] 
+    private MudBlazor.IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public List<AgentGroup> Groups { get; set; } = new();
+
+    private string _selectedGroupId = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        // 默认选择第一个 group
+        if (Groups != null && Groups.Count > 0)
+        {
+            _selectedGroupId = Groups[0].Id;
+        }
+    }
+
+    private void Submit()
+    {
+        if (!string.IsNullOrEmpty(_selectedGroupId))
+        {
+            MudDialog.Close(DialogResult.Ok(_selectedGroupId));
+        }
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+}

@@ -18,6 +18,11 @@ public class PersistedChatSession
     public string Name { get; set; } = $"Session {DateTime.Now:yyyy-MM-dd HH:mm}";
 
     /// <summary>
+    /// 所属的 Agent Group ID（必填）
+    /// </summary>
+    public string GroupId { get; set; } = string.Empty;
+
+    /// <summary>
     /// 序列化的 AgentThread 状态（JSON 格式）
     /// 优化后：只包含 SessionId 等最小元数据，不包含消息内容
     /// 消息存储在独立的 PersistedChatMessage 集合中

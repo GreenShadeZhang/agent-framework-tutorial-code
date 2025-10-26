@@ -131,7 +131,7 @@ public class PersistedSessionService : IDisposable
     /// <summary>
     /// 创建新会话
     /// </summary>
-    public PersistedChatSession CreateSession(string? name = null)
+    public PersistedChatSession CreateSession(string? name = null, string? groupId = null)
     {
         try
         {
@@ -139,6 +139,7 @@ public class PersistedSessionService : IDisposable
             {
                 Id = Guid.NewGuid().ToString(),
                 Name = name ?? $"Session {DateTime.Now:yyyy-MM-dd HH:mm}",
+                GroupId = groupId ?? string.Empty, // 设置 GroupId
                 ThreadData = string.Empty, // 空 thread，首次对话时初始化
                 CreatedAt = DateTime.UtcNow,
                 LastUpdated = DateTime.UtcNow,
@@ -149,8 +150,8 @@ public class PersistedSessionService : IDisposable
             _sessions.Insert(session);
             AddToCache(session.Id, session);
             
-            _logger?.LogInformation("Created new session {SessionId} with name '{Name}'", 
-                session.Id, session.Name);
+            _logger?.LogInformation("Created new session {SessionId} with name '{Name}' and groupId '{GroupId}'", 
+                session.Id, session.Name, session.GroupId);
             
             return session;
         }

@@ -10,6 +10,11 @@ public class ChatSession
     public string Name { get; set; } = $"Session {DateTime.Now:yyyy-MM-dd HH:mm}";
     
     /// <summary>
+    /// 所属的 Agent Group ID
+    /// </summary>
+    public string GroupId { get; set; } = string.Empty;
+    
+    /// <summary>
     /// 消息摘要列表（从后端的 MessageSummaries 映射）
     /// </summary>
     public List<ChatMessage> Messages { get; set; } = new();

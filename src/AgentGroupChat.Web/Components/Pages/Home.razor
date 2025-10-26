@@ -1,6 +1,7 @@
 @page "/"
 @using AgentGroupChat.Models
 @using AgentGroupChat.Web.Services
+@using AgentGroupChat.Web.Components.Dialogs
 @using Markdig
 @inject AgentHostClient AgentHostClient
 @inject IDialogService DialogService
@@ -29,6 +30,7 @@
         <MudList T="string">
             @foreach (var session in _sessions)
             {
+                var groupName = _groups.FirstOrDefault(g => g.Id == session.GroupId)?.Name ?? "未知组";
                 <MudListItem Class="@($"session-list-item {(_currentSession?.Id == session.Id ? "selected" : "")}")"
                              T="string">
                     <div class="d-flex align-center justify-space-between" style="width: 100%;">
@@ -36,6 +38,10 @@
                             <MudText Typo="Typo.body1"><strong>@session.Name</strong></MudText>
                             <MudText Typo="Typo.body2" Style="@(_currentSession?.Id == session.Id ? "color: rgba(139, 92, 246, 0.8);" : "opacity: 0.7;")">
                                 @session.LastUpdated.ToString("MMM dd, HH:mm")
+                            </MudText>
+                            <MudText Typo="Typo.caption" Style="opacity: 0.6;">
+                                <MudIcon Icon="@Icons.Material.Filled.Groups" Size="Size.Small" />
+                                @groupName
                             </MudText>
                         </div>
                         <MudIconButton Icon="@Icons.Material.Filled.Delete" 
@@ -57,6 +63,17 @@
             <MudText Typo="Typo.h5" Class="mb-2">
                 <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" />
                 Agent Group Chat
+                @if (_currentSession != null)
+                {
+                    var currentGroup = _groups.FirstOrDefault(g => g.Id == _currentSession.GroupId);
+                    if (currentGroup != null)
+                    {
+                        <MudChip Color="Color.Primary" Size="Size.Small" Class="ml-2" T="string">
+                            <MudIcon Icon="@Icons.Material.Filled.Groups" Size="Size.Small" Class="mr-1" />
+                            @currentGroup.Name
+                        </MudChip>
+                    }
+                }
             </MudText>
             <div class="d-flex flex-wrap gap-2 align-center">
                 <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mr-2">Available Agents:</MudText>
@@ -176,14 +193,16 @@
     private List<ChatSession> _sessions = new();
     private ChatSession? _currentSession;
     private List<AgentProfile> _agents = new();
+    private List<AgentGroup> _groups = new();
     private string _inputMessage = string.Empty;
     private bool _isLoading = false;
     private ElementReference _messagesContainer;
 
     protected override async Task OnInitializedAsync()
     {
-        // Load agents from API
+        // Load agents and groups from API
         _agents = await AgentHostClient.GetAgentsAsync();
+        _groups = await AgentHostClient.GetAllGroupsAsync();
         
         // Load sessions from API
         await LoadSessionsAsync();
@@ -208,12 +227,60 @@
 
     private async Task CreateNewSessionAsync()
     {
-        var newSession = await AgentHostClient.CreateSessionAsync();
-        if (newSession != null)
+        // 如果没有可用的组，提示用户
+        if (_groups == null || _groups.Count == 0)
         {
-            _currentSession = newSession;
-            _sessions.Insert(0, newSession);
-            StateHasChanged();
+            var initDialog = await DialogService.ShowMessageBox(
+                "提示",
+                "没有可用的 Agent Group。是否初始化默认数据？",
+                yesText: "初始化",
+                cancelText: "取消");
+
+            if (initDialog == true)
+            {
+                var success = await AgentHostClient.InitializeDefaultDataAsync();
+                if (success)
+                {
+                    _groups = await AgentHostClient.GetAllGroupsAsync();
+                    _agents = await AgentHostClient.GetAgentsAsync();
+                }
+                else
+                {
+                    return;
+                }
+            }
+            else
+            {
+                return;
+            }
+        }
+
+        // 显示选择 Agent Group 的对话框
+        var parameters = new DialogParameters
+        {
+            { "Groups", _groups }
+        };
+
+        var options = new DialogOptions 
+        { 
+            CloseButton = true, 
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true 
+        };
+
+        var dialog = await DialogService.ShowAsync<SelectGroupDialog>("选择 Agent Group", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled && result.Data is string selectedGroupId)
+        {
+            // 使用选中的 groupId 创建会话
+            var newSession = await AgentHostClient.CreateSessionAsync(selectedGroupId);
+            if (newSession != null)
+            {
+                _currentSession = newSession;
+                _sessions.Insert(0, newSession);
+                StateHasChanged();
+            }
         }
     }
 
