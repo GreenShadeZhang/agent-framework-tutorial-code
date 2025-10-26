@@ -15,7 +15,6 @@ namespace AgentGroupChat.AgentHost.Services;
 public class AgentChatService
 {
     private readonly PersistedSessionService _sessionService;
-    private readonly ImageGenerationTool _imageTool;
     private readonly McpToolService _mcpToolService;
     private readonly WorkflowManager _workflowManager;
     private readonly AgentRepository _agentRepository;
@@ -39,8 +38,6 @@ public class AgentChatService
         _mcpToolService = mcpToolService ?? throw new ArgumentNullException(nameof(mcpToolService));
         _workflowManager = workflowManager ?? throw new ArgumentNullException(nameof(workflowManager));
         _agentRepository = agentRepository ?? throw new ArgumentNullException(nameof(agentRepository));
-
-        _imageTool = new ImageGenerationTool();
 
         _logger?.LogInformation("AgentChatService initialized with WorkflowManager and dynamic agent loading");
     }
@@ -178,35 +175,7 @@ public class AgentChatService
             _logger?.LogInformation("Collected {Count} agent responses for session {SessionId}",
                 summaries.Count, sessionId);
 
-            // 5️⃣ 检查是否需要生成图片
-            if (currentSummary != null && ShouldGenerateImage(currentSummary.Content))
-            {
-                try
-                {
-                    var profile = GetAgentProfile(currentExecutorId!);
-                    var imageUrl = await _imageTool.GenerateImage($"{profile?.Personality ?? "casual"} scene");
-
-                    summaries.Add(new ChatMessageSummary
-                    {
-                        AgentId = currentExecutorId!,
-                        AgentName = currentSummary.AgentName,
-                        AgentAvatar = currentSummary.AgentAvatar,
-                        Content = "Here's a photo I'd like to share! 📸",
-                        ImageUrl = imageUrl,
-                        IsUser = false,
-                        Timestamp = DateTime.UtcNow,
-                        MessageType = "image"
-                    });
-
-                    _logger?.LogDebug("Generated image for agent {AgentId}", currentExecutorId);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Failed to generate image for agent {AgentId}", currentExecutorId);
-                }
-            }
-
-            // 6️⃣ 手动保存所有消息到 LiteDB
+            // 5️⃣ 手动保存所有消息到 LiteDB
             try
             {
                 var currentExecutorIdPrefix = currentExecutorId != null && currentExecutorId.Contains('_')
@@ -259,7 +228,7 @@ public class AgentChatService
                 _logger?.LogError(ex, "Error saving messages for session {SessionId}", sessionId);
             }
 
-            // 7️⃣ 过滤掉 triage agent 消息和空消息
+            // 6️⃣ 过滤掉 triage agent 消息和空消息
             var filteredSummaries = summaries.Where(s =>
             {
                 var agentIdPrefix = s.AgentId.Contains('_') ? s.AgentId.Split('_')[0] : s.AgentId;
@@ -289,16 +258,6 @@ public class AgentChatService
 
             return summaries;
         }
-    }
-
-    /// <summary>
-    /// 判断是否应该生成图片
-    /// </summary>
-    private bool ShouldGenerateImage(string content)
-    {
-        var imageKeywords = new[] { "photo", "picture", "image", "show", "look", "see", "here" };
-        return imageKeywords.Any(keyword => content.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-               && new Random().Next(0, 2) == 0; // 50% 概率
     }
 
     /// <summary>
