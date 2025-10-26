@@ -117,7 +117,13 @@ public class WorkflowManager
                 _chatClient,
                 instructions: profile.SystemPrompt +
                     "\n\nIMPORTANT: If the user asks about something outside your expertise, " +
-                    "you can suggest they ask another agent, but still provide a helpful response.",
+                    "you can suggest they ask another agent, but still provide a helpful response." +
+                    "\n\nWhen using tools:" +
+                    "\n- After calling a tool, ALWAYS wait for the result and incorporate it into your response." +
+                    "\n- Present tool results in a clear, user-friendly format." +
+                    "\n- For image URLs, describe what was generated and provide the link." +
+                    "\n- For data results, summarize key information in a readable way." +
+                    "\n- Never just return raw tool output - always add context and explanation.",
                 name: profile.Id,
                 description: profile.Description,
                 tools: [.. mcpTools])  // 为 Specialist Agents 添加 MCP 工具

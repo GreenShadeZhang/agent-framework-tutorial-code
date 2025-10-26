@@ -152,17 +152,80 @@ public class AgentChatService
                         _logger?.LogDebug("Created summary for specialist agent {AgentId}", currentExecutorId);
                     }
 
-                    // 追加文本内容
                     if (currentSummary != null)
                     {
-                        currentSummary.Content += agentUpdate.Update.Text;
-                    }
+                        // ✅ 核心理念：只提取 LLM 生成的文本，让 LLM 自动处理 Tool 结果
+                        // FunctionInvokingChatClient 会自动：
+                        // 1. 执行 Tool (FunctionCallContent)
+                        // 2. 将结果发回 LLM (FunctionResultContent)
+                        // 3. LLM 基于结果生成最终文本 (TextContent)
+                        
+                        // 记录详细的事件信息用于调试和监控
+                        if (agentUpdate.Update.Contents.Count > 0)
+                        {
+                            _logger?.LogDebug(
+                                "AgentRunUpdateEvent from {ExecutorId}: Text='{Text}', Contents Count={Count}",
+                                currentExecutorId,
+                                agentUpdate.Update.Text ?? "(empty)",
+                                agentUpdate.Update.Contents.Count);
 
-                    // 检测函数调用
-                    if (agentUpdate.Update.Contents.OfType<FunctionCallContent>().FirstOrDefault() is FunctionCallContent call)
-                    {
-                        _logger?.LogDebug("Agent {ExecutorId} calling function: {FunctionName} with args: {Args}",
-                            currentExecutorId, call.Name, JsonSerializer.Serialize(call.Arguments));
+                            // 记录每个 Content 类型（仅用于调试和监控）
+                            foreach (var content in agentUpdate.Update.Contents)
+                            {
+                                switch (content)
+                                {
+                                    case FunctionCallContent functionCall:
+                                        _logger?.LogInformation(
+                                            "🔧 Tool Call | Agent: {AgentId} | Function: {FunctionName} | Args: {Args}",
+                                            currentExecutorId,
+                                            functionCall.Name,
+                                            JsonSerializer.Serialize(functionCall.Arguments));
+                                        break;
+
+                                    case FunctionResultContent functionResult:
+                                        // 记录 Tool 执行结果（仅用于监控，不手动提取）
+                                        var resultPreview = functionResult.Result?.ToString() ?? "(null)";
+                                        if (resultPreview.Length > 200)
+                                        {
+                                            resultPreview = resultPreview.Substring(0, 200) + "...";
+                                        }
+                                        _logger?.LogInformation(
+                                            "✅ Tool Result | Agent: {AgentId} | CallId: {CallId} | Result Preview: {Preview}",
+                                            currentExecutorId,
+                                            functionResult.CallId,
+                                            resultPreview);
+                                        break;
+
+                                    case TextContent textContent:
+                                        _logger?.LogDebug("📝 Text | Agent: {AgentId} | Content: '{Text}'",
+                                            currentExecutorId,
+                                            textContent.Text ?? "(empty)");
+                                        break;
+
+                                    case DataContent dataContent:
+                                        _logger?.LogDebug("📦 Data | Agent: {AgentId}",
+                                            currentExecutorId);
+                                        break;
+
+                                    default:
+                                        _logger?.LogDebug("❓ Unknown | Agent: {AgentId} | Type: {Type}",
+                                            currentExecutorId,
+                                            content.GetType().Name);
+                                        break;
+                                }
+                            }
+                        }
+
+                        // ✅ 只累积 LLM 生成的文本内容
+                        // LLM 会自动处理 Tool 结果并生成润色后的文本
+                        if (!string.IsNullOrEmpty(agentUpdate.Update.Text))
+                        {
+                            currentSummary.Content += agentUpdate.Update.Text;
+                            _logger?.LogDebug(
+                                "📄 Accumulated text for {AgentId}, total length: {Length}",
+                                currentExecutorId,
+                                currentSummary.Content.Length);
+                        }
                     }
                 }
                 else if (evt is WorkflowOutputEvent output)
