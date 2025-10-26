@@ -49,6 +49,7 @@ src/AgentGroupChat.AgentHost/
         "Endpoint": "https://dashscope.aliyuncs.com/api/v1/mcps/TextToImage/sse",
         "AuthType": "Bearer",
         "BearerToken": "sk-8475e1fe4aea401c845bf364ff932165",
+        "TransportMode": "Sse",
         "Enabled": true,
         "Description": "阿里云 DashScope 文生图服务，用于生成图像"
       }
@@ -65,10 +66,17 @@ src/AgentGroupChat.AgentHost/
 | `Name` | string | 是 | 服务器显示名称 |
 | `Endpoint` | string | 是 | MCP 服务器端点 URL |
 | `AuthType` | string | 是 | 认证类型：`Bearer`、`OAuth` 或 `None` |
+| `TransportMode` | enum | 否 | 传输模式：`AutoDetect`（默认）、`Sse`、`StreamableHttp`<br>推荐 DashScope 等 SSE 服务使用 `Sse` 模式 |
 | `BearerToken` | string | 条件 | Bearer Token（当 AuthType 为 Bearer 时必需） |
 | `OAuth` | object | 条件 | OAuth 配置（当 AuthType 为 OAuth 时必需） |
 | `Enabled` | boolean | 否 | 是否启用此服务器（默认 true） |
 | `Description` | string | 否 | 服务器描述信息 |
+
+### TransportMode 说明
+
+- **AutoDetect**（默认）: 自动检测传输模式，让 SDK 根据服务器响应选择最佳模式
+- **Sse**: 使用 Server-Sent Events 进行流式通信，**推荐用于 DashScope 和其他基于 SSE 的服务**
+- **StreamableHttp**: 使用可流式传输的 HTTP 通信
 
 ### OAuth 配置示例
 

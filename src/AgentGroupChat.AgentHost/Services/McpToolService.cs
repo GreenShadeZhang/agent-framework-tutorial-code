@@ -138,14 +138,25 @@ public class McpToolService : IAsyncDisposable
         httpClient.DefaultRequestHeaders.Authorization = 
             new AuthenticationHeaderValue("Bearer", config.BearerToken);
 
-        var transport = new HttpClientTransport(new()
+        // Convert config transport mode to SDK transport mode
+        var transportMode = ConvertToSdkTransportMode(config.TransportMode);
+
+        var transportOptions = new HttpClientTransportOptions
         {
             Endpoint = new Uri(config.Endpoint),
-            TransportMode = HttpTransportMode.Sse,
             Name = config.Name
-        }, httpClient);
+        };
 
-        _logger.LogDebug("Created Bearer token transport for {ServerName}", config.Name);
+        // Only set TransportMode if not AutoDetect (let SDK auto-detect by default)
+        if (config.TransportMode != McpTransportMode.AutoDetect)
+        {
+            transportOptions.TransportMode = transportMode;
+        }
+
+        var transport = new HttpClientTransport(transportOptions, httpClient);
+
+        _logger.LogDebug("Created Bearer token transport for {ServerName} with mode: {TransportMode}", 
+            config.Name, config.TransportMode);
         return transport;
     }
 
@@ -159,7 +170,7 @@ public class McpToolService : IAsyncDisposable
             throw new InvalidOperationException($"OAuth configuration is required for server: {config.Name}");
         }
 
-        var transport = new HttpClientTransport(new()
+        var transportOptions = new HttpClientTransportOptions
         {
             Endpoint = new Uri(config.Endpoint),
             Name = config.Name,
@@ -171,9 +182,18 @@ public class McpToolService : IAsyncDisposable
                 // Note: For production OAuth flow, you would need to implement
                 // AuthorizationRedirectDelegate similar to the Agent_MCP_Server_Auth sample
             }
-        }, _httpClient);
+        };
 
-        _logger.LogDebug("Created OAuth transport for {ServerName}", config.Name);
+        // Only set TransportMode if not AutoDetect
+        if (config.TransportMode != McpTransportMode.AutoDetect)
+        {
+            transportOptions.TransportMode = ConvertToSdkTransportMode(config.TransportMode);
+        }
+
+        var transport = new HttpClientTransport(transportOptions, _httpClient);
+
+        _logger.LogDebug("Created OAuth transport for {ServerName} with mode: {TransportMode}", 
+            config.Name, config.TransportMode);
         return transport;
     }
 
@@ -182,14 +202,37 @@ public class McpToolService : IAsyncDisposable
     /// </summary>
     private IClientTransport CreateNoAuthTransport(McpServerConfig config)
     {
-        var transport = new HttpClientTransport(new()
+        var transportOptions = new HttpClientTransportOptions
         {
             Endpoint = new Uri(config.Endpoint),
             Name = config.Name
-        }, _httpClient);
+        };
 
-        _logger.LogDebug("Created no-auth transport for {ServerName}", config.Name);
+        // Only set TransportMode if not AutoDetect
+        if (config.TransportMode != McpTransportMode.AutoDetect)
+        {
+            transportOptions.TransportMode = ConvertToSdkTransportMode(config.TransportMode);
+        }
+
+        var transport = new HttpClientTransport(transportOptions, _httpClient);
+
+        _logger.LogDebug("Created no-auth transport for {ServerName} with mode: {TransportMode}", 
+            config.Name, config.TransportMode);
         return transport;
+    }
+
+    /// <summary>
+    /// Convert configuration TransportMode to SDK HttpTransportMode
+    /// </summary>
+    private static HttpTransportMode ConvertToSdkTransportMode(McpTransportMode mode)
+    {
+        return mode switch
+        {
+            McpTransportMode.Sse => HttpTransportMode.Sse,
+            McpTransportMode.StreamableHttp => HttpTransportMode.StreamableHttp,
+            McpTransportMode.AutoDetect => HttpTransportMode.AutoDetect,
+            _ => HttpTransportMode.AutoDetect
+        };
     }
 
     /// <summary>
