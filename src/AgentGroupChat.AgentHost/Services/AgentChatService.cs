@@ -166,13 +166,15 @@ public class AgentChatService
         ));
 
         var triageInstructions =
-            "You are a smart routing agent that analyzes user messages and decides which specialist agent should respond. " +
-            "IMPORTANT: You MUST ALWAYS use the handoff function to delegate to one of the specialist agents. NEVER respond directly. " +
+            "You are an invisible routing agent. Your ONLY job is to analyze messages and call the handoff function. " +
+            "CRITICAL RULES:\n" +
+            "1. NEVER generate ANY text response - you are completely silent and invisible to users\n" +
+            "2. IMMEDIATELY call the handoff function without any explanation or text\n" +
+            "3. Do NOT acknowledge, greet, or respond - just route silently\n" +
             "\n\nAvailable specialist agents:\n" +
             specialistDescriptions +
-            "\n\nAnalyze the user's message and handoff to the most appropriate specialist. " +
-            "Consider the topic, keywords, tone, and context when making your decision. " +
-            "Choose the specialist whose personality and expertise best match the user's needs.";
+            "\n\nYour task: Analyze the message silently and immediately handoff to the most appropriate specialist. " +
+            "Choose based on topic, keywords, tone, and context. Make your decision and call handoff instantly.";
 
         // 创建 Triage Agent（智能路由器）
         var triageAgent = new ChatClientAgent(
@@ -223,16 +225,9 @@ public class AgentChatService
         {
             _logger?.LogDebug("Processing message for session {SessionId}: {Message}", sessionId, message);
 
-            // 1️⃣ 添加用户消息摘要
-            summaries.Add(new ChatMessageSummary
-            {
-                Content = message,
-                IsUser = true,
-                Timestamp = DateTime.UtcNow,
-                MessageType = "text"
-            });
-
-            // 2️⃣ 准备消息列表（包含历史消息）
+            // 1️⃣ 准备消息列表（包含历史消息）
+            // ✅ 注意：不添加用户消息到 summaries，因为前端已经做了乐观更新
+            //    summaries 只用于返回 AI agent 的响应
             var messages = new List<AIChatMessage>();
 
             // 从数据库加载历史消息
@@ -252,11 +247,12 @@ public class AgentChatService
             // 添加当前用户消息
             messages.Add(new AIChatMessage(ChatRole.User, message));
 
-            // 3️⃣ 运行 Workflow（✅ 复用预创建的单例 workflow，零开销）
+            // 2️⃣ 运行 Workflow（✅ 复用预创建的单例 workflow，零开销）
             await using StreamingRun run = await InProcessExecution.StreamAsync(_handoffWorkflow, messages);
             await run.TrySendMessageAsync(new TurnToken(emitEvents: true));
 
-            // 4️⃣ 处理 WorkflowEvent 流，追踪不同 agent 的执行
+            // 3️⃣ 处理 WorkflowEvent 流，追踪不同 agent 的执行
+            // ✅ 只收集 specialist agents 的响应，完全跳过 triage agent
             string? currentExecutorId = null;
             ChatMessageSummary? currentSummary = null;
 
@@ -264,7 +260,24 @@ public class AgentChatService
             {
                 if (evt is AgentRunUpdateEvent agentUpdate)
                 {
-                    // 检测到新的 agent 执行
+                    // ✅ 完全跳过 triage agent 的所有事件处理（对用户无感知）
+                    // 注意：ExecutorId 可能是 "triage" 或 "triage_xxxxx" 格式，需要提取前缀
+                    var executorIdPrefix = agentUpdate.ExecutorId.Contains('_') 
+                        ? agentUpdate.ExecutorId.Split('_')[0] 
+                        : agentUpdate.ExecutorId;
+                    
+                    if (executorIdPrefix.Equals("triage", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 记录 handoff 调用用于调试
+                        if (agentUpdate.Update.Contents.OfType<FunctionCallContent>().FirstOrDefault() is FunctionCallContent triageCall)
+                        {
+                            _logger?.LogDebug("Triage agent (ID: {ExecutorId}) routing to: {FunctionName} with args: {Args}",
+                                agentUpdate.ExecutorId, triageCall.Name, JsonSerializer.Serialize(triageCall.Arguments));
+                        }
+                        continue; // 跳过 triage agent 的所有处理
+                    }
+
+                    // 检测到新的 specialist agent 执行
                     if (agentUpdate.ExecutorId != currentExecutorId)
                     {
                         currentExecutorId = agentUpdate.ExecutorId;
@@ -275,30 +288,29 @@ public class AgentChatService
                         _logger?.LogDebug("Agent switched to: {ExecutorId} ({AgentName})",
                             currentExecutorId, profile?.Name ?? currentExecutorId);
 
-                        // 创建新的消息摘要（跳过 triage agent 的输出，它不应该有输出）
-                        if (currentExecutorId != "triage")
+                        // 创建新的消息摘要（只为 specialist agents）
+                        currentSummary = new ChatMessageSummary
                         {
-                            currentSummary = new ChatMessageSummary
-                            {
-                                AgentId = currentExecutorId,
-                                AgentName = profile?.Name ?? currentExecutorId,
-                                AgentAvatar = profile?.Avatar ?? "🤖",
-                                Content = "",
-                                IsUser = false,
-                                Timestamp = DateTime.UtcNow,
-                                MessageType = "text"
-                            };
-                            summaries.Add(currentSummary);
-                        }
+                            AgentId = currentExecutorId,
+                            AgentName = profile?.Name ?? currentExecutorId,
+                            AgentAvatar = profile?.Avatar ?? "🤖",
+                            Content = "",
+                            IsUser = false,
+                            Timestamp = DateTime.UtcNow,
+                            MessageType = "text"
+                        };
+                        summaries.Add(currentSummary);
+
+                        _logger?.LogDebug("Created summary for specialist agent {AgentId}", currentExecutorId);
                     }
 
-                    // 追加文本内容（仅当不是 triage agent 时）
-                    if (currentExecutorId != "triage" && currentSummary != null)
+                    // 追加文本内容（只处理 specialist agents）
+                    if (currentSummary != null)
                     {
                         currentSummary.Content += agentUpdate.Update.Text;
                     }
 
-                    // 检测函数调用（例如 handoff）
+                    // 检测函数调用（例如 specialist 之间的 handoff）
                     if (agentUpdate.Update.Contents.OfType<FunctionCallContent>().FirstOrDefault() is FunctionCallContent call)
                     {
                         _logger?.LogDebug("Agent {ExecutorId} calling function: {FunctionName} with args: {Args}",
@@ -312,7 +324,10 @@ public class AgentChatService
                 }
             }
 
-            // 5️⃣ 检查是否需要生成图片（基于最后一个 agent 的响应）
+            _logger?.LogInformation("Collected {Count} agent responses for session {SessionId}",
+                summaries.Count, sessionId);
+
+            // 4️⃣ 检查是否需要生成图片（基于最后一个 agent 的响应）
             if (currentSummary != null && ShouldGenerateImage(currentSummary.Content))
             {
                 try
@@ -340,46 +355,85 @@ public class AgentChatService
                 }
             }
 
-            // 6️⃣ 手动保存所有消息到 LiteDB
+            // 5️⃣ 手动保存所有消息到 LiteDB（跳过 triage agent）
             try
             {
-                var messagesToSave = new List<AIChatMessage>();
+                // ✅ 只保存实际的 specialist agent 响应，不保存 triage agent
+                // 注意：currentExecutorId 可能是 "triage_xxxxx" 格式，需要检查前缀
+                var currentExecutorIdPrefix = currentExecutorId != null && currentExecutorId.Contains('_')
+                    ? currentExecutorId.Split('_')[0]
+                    : currentExecutorId;
 
-                // 用户消息
-                messagesToSave.Add(new AIChatMessage(ChatRole.User, message)
+                if (currentExecutorId != null && 
+                    !string.Equals(currentExecutorIdPrefix, "triage", StringComparison.OrdinalIgnoreCase) && 
+                    currentSummary != null)
                 {
-                    MessageId = Guid.NewGuid().ToString()
-                });
+                    var messagesToSave = new List<AIChatMessage>();
 
-                // Agent 响应消息
-                foreach (var summary in summaries.Where(s => !s.IsUser && s.MessageType == "text"))
-                {
-                    messagesToSave.Add(new AIChatMessage(ChatRole.Assistant, summary.Content)
+                    // 用户消息
+                    messagesToSave.Add(new AIChatMessage(ChatRole.User, message)
                     {
                         MessageId = Guid.NewGuid().ToString()
                     });
+
+                    // Specialist Agent 响应消息（确保不是空的）
+                    foreach (var summary in summaries.Where(s => !s.IsUser && 
+                                                                  s.MessageType == "text" && 
+                                                                  !string.IsNullOrWhiteSpace(s.Content)))
+                    {
+                        messagesToSave.Add(new AIChatMessage(ChatRole.Assistant, summary.Content)
+                        {
+                            MessageId = Guid.NewGuid().ToString()
+                        });
+                    }
+
+                    // 保存到 LiteDB（只保存有效消息）
+                    if (messagesToSave.Count > 0)
+                    {
+                        var messageStore = new LiteDbChatMessageStore(
+                            _sessionService.GetMessagesCollection(),
+                            sessionId,
+                            currentExecutorId,
+                            currentSummary.AgentName,
+                            currentSummary.AgentAvatar,
+                            _storeLogger);
+
+                        await messageStore.AddMessagesAsync(messagesToSave);
+
+                        _logger?.LogInformation("Saved {Count} messages to LiteDB for session {SessionId} (Agent: {AgentId})",
+                            messagesToSave.Count, sessionId, currentExecutorId);
+                    }
+                    else
+                    {
+                        _logger?.LogWarning("No valid messages to save for session {SessionId}", sessionId);
+                    }
                 }
-
-                // 保存到 LiteDB
-                var messageStore = new LiteDbChatMessageStore(
-                    _sessionService.GetMessagesCollection(),
-                    sessionId,
-                    currentExecutorId ?? "assistant",
-                    currentSummary?.AgentName ?? "Assistant",
-                    currentSummary?.AgentAvatar ?? "🤖",
-                    _storeLogger);
-
-                await messageStore.AddMessagesAsync(messagesToSave);
-
-                _logger?.LogInformation("Saved {Count} messages to LiteDB for session {SessionId}",
-                    messagesToSave.Count, sessionId);
+                else
+                {
+                    _logger?.LogWarning("No specialist agent responded for session {SessionId} - currentExecutorId: {ExecutorId}",
+                        sessionId, currentExecutorId ?? "null");
+                }
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error saving messages for session {SessionId}", sessionId);
             }
 
-            return summaries;
+            // 6️⃣ 最后的安全检查：过滤掉所有 triage agent 消息和空消息
+            var filteredSummaries = summaries.Where(s =>
+            {
+                // 提取 agent ID 前缀
+                var agentIdPrefix = s.AgentId.Contains('_') ? s.AgentId.Split('_')[0] : s.AgentId;
+                
+                // 排除 triage agent 和空消息
+                return !string.Equals(agentIdPrefix, "triage", StringComparison.OrdinalIgnoreCase) &&
+                       !string.IsNullOrWhiteSpace(s.Content);
+            }).ToList();
+
+            _logger?.LogInformation("Returning {Count} filtered responses (excluded triage and empty messages) for session {SessionId}",
+                filteredSummaries.Count, sessionId);
+
+            return filteredSummaries;
         }
         catch (Exception ex)
         {
