@@ -185,6 +185,165 @@ public class AgentHostClient
             return null;
         }
     }
+
+    // ===== Agent Management APIs =====
+
+    /// <summary>
+    /// Get all agents from database (including disabled).
+    /// </summary>
+    public async Task<List<PersistedAgentProfile>> GetAllAgentsAsync()
+    {
+        try
+        {
+            var agents = await _httpClient.GetFromJsonAsync<List<PersistedAgentProfile>>("api/admin/agents");
+            return agents ?? new List<PersistedAgentProfile>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get all agents from AgentHost");
+            return new List<PersistedAgentProfile>();
+        }
+    }
+
+    /// <summary>
+    /// Get agent by ID.
+    /// </summary>
+    public async Task<PersistedAgentProfile?> GetAgentByIdAsync(string id)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<PersistedAgentProfile>($"api/admin/agents/{id}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get agent {AgentId} from AgentHost", id);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Create or update an agent.
+    /// </summary>
+    public async Task<PersistedAgentProfile?> UpsertAgentAsync(PersistedAgentProfile agent)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("api/admin/agents", agent);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<PersistedAgentProfile>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upsert agent {AgentId}", agent.Id);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Delete an agent.
+    /// </summary>
+    public async Task<bool> DeleteAgentAsync(string id)
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"api/admin/agents/{id}");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete agent {AgentId}", id);
+            return false;
+        }
+    }
+
+    // ===== Agent Group Management APIs =====
+
+    /// <summary>
+    /// Get all agent groups.
+    /// </summary>
+    public async Task<List<AgentGroup>> GetAllGroupsAsync()
+    {
+        try
+        {
+            var groups = await _httpClient.GetFromJsonAsync<List<AgentGroup>>("api/admin/groups");
+            return groups ?? new List<AgentGroup>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get all groups from AgentHost");
+            return new List<AgentGroup>();
+        }
+    }
+
+    /// <summary>
+    /// Get agent group by ID.
+    /// </summary>
+    public async Task<AgentGroup?> GetGroupByIdAsync(string id)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<AgentGroup>($"api/admin/groups/{id}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get group {GroupId} from AgentHost", id);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Create or update an agent group.
+    /// </summary>
+    public async Task<AgentGroup?> UpsertGroupAsync(AgentGroup group)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("api/admin/groups", group);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<AgentGroup>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upsert group {GroupId}", group.Id);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Delete an agent group.
+    /// </summary>
+    public async Task<bool> DeleteGroupAsync(string id)
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"api/admin/groups/{id}");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete group {GroupId}", id);
+            return false;
+        }
+    }
+
+    // ===== Initialization API =====
+
+    /// <summary>
+    /// Initialize default agents and groups.
+    /// </summary>
+    public async Task<bool> InitializeDefaultDataAsync()
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync("api/admin/initialize", null);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize default data");
+            return false;
+        }
+    }
 }
 
 /// <summary>

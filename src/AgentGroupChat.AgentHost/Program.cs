@@ -1,6 +1,11 @@
 using AgentGroupChat.AgentHost.Services;
 using AgentGroupChat.Models;
 using Scalar.AspNetCore;
+using LiteDB;
+using Azure.AI.OpenAI;
+using Microsoft.Extensions.AI;
+using OpenAI;
+using System.ClientModel;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,9 +19,76 @@ builder.Services.AddProblemDetails();
 // Add HttpClient factory for MCP service
 builder.Services.AddHttpClient();
 
+// Register LiteDB database as singleton with shared mode for better concurrency
+builder.Services.AddSingleton<LiteDatabase>(sp =>
+{
+    var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
+    Directory.CreateDirectory(dbPath);
+    var dbFilePath = Path.Combine(dbPath, "sessions.db");
+    
+    // 使用连接字符串配置 LiteDB
+    // Mode=Shared: 允许多个进程/线程读取，但写入时会锁定
+    // Connection=shared: 共享连接模式，提高并发性能
+    var connectionString = $"Filename={dbFilePath};Mode=Shared;Connection=shared";
+    
+    return new LiteDatabase(connectionString);
+});
+
+// Register repositories
+builder.Services.AddSingleton<AgentRepository>();
+builder.Services.AddSingleton<AgentGroupRepository>();
+
+// Register IChatClient for WorkflowManager
+builder.Services.AddSingleton<IChatClient>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var defaultModelProvider = configuration["DefaultModelProvider"] ?? "AzureOpenAI";
+
+    if (defaultModelProvider == "AzureOpenAI")
+    {
+        var endpoint = configuration["AzureOpenAI:Endpoint"] ??
+                      Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ??
+                      throw new InvalidOperationException("Azure OpenAI endpoint not configured");
+        var deploymentName = configuration["AzureOpenAI:DeploymentName"] ??
+                            Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT_NAME") ??
+                            "gpt-4o-mini";
+        var apiKey = configuration["AzureOpenAI:ApiKey"] ??
+                     Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY") ??
+                     throw new InvalidOperationException("Azure OpenAI API key not configured");
+
+        var azureClient = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey))
+            .GetChatClient(deploymentName);
+        return azureClient.AsIChatClient() ?? throw new InvalidOperationException("Failed to get chat client");
+    }
+    else if (defaultModelProvider == "OpenAI")
+    {
+        var baseUrl = configuration["OpenAI:BaseUrl"] ??
+                      Environment.GetEnvironmentVariable("OPENAI_BASE_URL") ??
+                      string.Empty;
+        var modelName = configuration["OpenAI:ModelName"] ??
+                        Environment.GetEnvironmentVariable("OPENAI_MODEL_NAME") ??
+                        "gpt-4o-mini";
+        var apiKey = configuration["OpenAI:ApiKey"] ??
+                        Environment.GetEnvironmentVariable("OPENAI_API_KEY") ??
+                        throw new InvalidOperationException("OpenAI API key not configured");
+
+        var options = !string.IsNullOrEmpty(baseUrl) ?
+              new OpenAIClientOptions { Endpoint = new Uri(baseUrl) } : null;
+        var openAiClient = new OpenAIClient(new ApiKeyCredential(apiKey), options);
+
+        return openAiClient.GetChatClient(modelName).AsIChatClient()
+            ?? throw new InvalidOperationException("Failed to get chat client");
+    }
+    else
+    {
+        throw new InvalidOperationException($"Unsupported DefaultModelProvider: {defaultModelProvider}");
+    }
+});
+
 // Register custom services
 builder.Services.AddSingleton<PersistedSessionService>();
 builder.Services.AddSingleton<McpToolService>();
+builder.Services.AddSingleton<WorkflowManager>();
 builder.Services.AddSingleton<AgentChatService>();
 
 // Enable CORS for Web frontend
@@ -196,6 +268,139 @@ app.MapGet("/api/mcp/servers", (McpToolService mcpService) =>
     return Results.Ok(servers);
 })
 .WithName("GetMcpServers")
+.WithOpenApi();
+
+// ===== Agent Management Endpoints =====
+
+// Get all agents from database
+app.MapGet("/api/admin/agents", (AgentRepository agentRepo) =>
+{
+    var agents = agentRepo.GetAll();
+    return Results.Ok(agents);
+})
+.WithName("GetAllAgentsFromDb")
+.WithOpenApi();
+
+// Get agent by ID
+app.MapGet("/api/admin/agents/{id}", (string id, AgentRepository agentRepo) =>
+{
+    var agent = agentRepo.GetById(id);
+    if (agent == null)
+        return Results.NotFound($"Agent {id} not found");
+    
+    return Results.Ok(agent);
+})
+.WithName("GetAgentById")
+.WithOpenApi();
+
+// Create or update agent
+app.MapPost("/api/admin/agents", (PersistedAgentProfile agent, AgentRepository agentRepo, WorkflowManager workflowManager) =>
+{
+    if (string.IsNullOrWhiteSpace(agent.Id))
+        return Results.BadRequest("Agent ID is required");
+    
+    agentRepo.Upsert(agent);
+    
+    // Clear workflow cache to force recreation with new agent config
+    workflowManager.ClearAllWorkflowCache();
+    
+    return Results.Ok(agent);
+})
+.WithName("UpsertAgent")
+.WithOpenApi();
+
+// Delete agent
+app.MapDelete("/api/admin/agents/{id}", (string id, AgentRepository agentRepo, WorkflowManager workflowManager) =>
+{
+    var deleted = agentRepo.Delete(id);
+    if (!deleted)
+        return Results.NotFound($"Agent {id} not found");
+    
+    // Clear workflow cache
+    workflowManager.ClearAllWorkflowCache();
+    
+    return Results.Ok();
+})
+.WithName("DeleteAgent")
+.WithOpenApi();
+
+// ===== Agent Group Management Endpoints =====
+
+// Get all agent groups
+app.MapGet("/api/admin/groups", (AgentGroupRepository groupRepo) =>
+{
+    var groups = groupRepo.GetAll();
+    return Results.Ok(groups);
+})
+.WithName("GetAllGroups")
+.WithOpenApi();
+
+// Get agent group by ID
+app.MapGet("/api/admin/groups/{id}", (string id, AgentGroupRepository groupRepo) =>
+{
+    var group = groupRepo.GetById(id);
+    if (group == null)
+        return Results.NotFound($"Group {id} not found");
+    
+    return Results.Ok(group);
+})
+.WithName("GetGroupById")
+.WithOpenApi();
+
+// Create or update agent group
+app.MapPost("/api/admin/groups", (AgentGroup group, AgentGroupRepository groupRepo, WorkflowManager workflowManager) =>
+{
+    if (string.IsNullOrWhiteSpace(group.Id))
+        return Results.BadRequest("Group ID is required");
+    
+    groupRepo.Upsert(group);
+    
+    // Clear workflow cache for this group
+    workflowManager.ClearWorkflowCache(group.Id);
+    
+    return Results.Ok(group);
+})
+.WithName("UpsertGroup")
+.WithOpenApi();
+
+// Delete agent group
+app.MapDelete("/api/admin/groups/{id}", (string id, AgentGroupRepository groupRepo, WorkflowManager workflowManager) =>
+{
+    var deleted = groupRepo.Delete(id);
+    if (!deleted)
+        return Results.NotFound($"Group {id} not found");
+    
+    // Clear workflow cache
+    workflowManager.ClearWorkflowCache(id);
+    
+    return Results.Ok();
+})
+.WithName("DeleteGroup")
+.WithOpenApi();
+
+// ===== Initialization Endpoint =====
+
+// Initialize default agents and groups
+app.MapPost("/api/admin/initialize", (AgentRepository agentRepo, AgentGroupRepository groupRepo) =>
+{
+    try
+    {
+        agentRepo.InitializeDefaultAgents();
+        groupRepo.InitializeDefaultGroup();
+        
+        return Results.Ok(new
+        {
+            Message = "Default agents and groups initialized successfully",
+            AgentCount = agentRepo.GetAll().Count,
+            GroupCount = groupRepo.GetAll().Count
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Error initializing data: {ex.Message}");
+    }
+})
+.WithName("InitializeDefaultData")
 .WithOpenApi();
 
 // ===== 调试端点 =====
