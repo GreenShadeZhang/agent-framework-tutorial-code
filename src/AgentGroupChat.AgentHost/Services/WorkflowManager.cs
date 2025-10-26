@@ -116,14 +116,14 @@ public class WorkflowManager
             new ChatClientAgent(
                 _chatClient,
                 instructions: profile.SystemPrompt +
-                    "\n\nIMPORTANT: If the user asks about something outside your expertise, " +
-                    "you can suggest they ask another agent, but still provide a helpful response." +
-                    "\n\nWhen using tools:" +
-                    "\n- After calling a tool, ALWAYS wait for the result and incorporate it into your response." +
-                    "\n- Present tool results in a clear, user-friendly format." +
-                    "\n- For image URLs, describe what was generated and provide the link." +
-                    "\n- For data results, summarize key information in a readable way." +
-                    "\n- Never just return raw tool output - always add context and explanation.",
+                    "\n\n重要提示：如果用户询问超出你专业领域的问题，" +
+                    "你可以建议他们询问其他智能体，但仍需提供有帮助的回答。" +
+                    "\n\n使用工具时：" +
+                    "\n- 调用工具后，务必等待结果并将其融入你的回复中。" +
+                    "\n- 以清晰、用户友好的格式呈现工具结果。" +
+                    "\n- 对于图像URL，描述生成的内容并提供链接。" +
+                    "\n- 对于数据结果，以易读的方式总结关键信息。" +
+                    "\n- 永远不要只返回原始工具输出 - 始终添加上下文和解释。",
                 name: profile.Id,
                 description: profile.Description,
                 tools: [.. mcpTools])  // 为 Specialist Agents 添加 MCP 工具
@@ -157,20 +157,20 @@ public class WorkflowManager
             return group.TriageSystemPrompt;
         }
 
-        // 否则生成默认的 Triage 指令
+        // 否则生成默认的 Triage 指令（中文版）
         var specialistDescriptions = string.Join("\n", agentProfiles.Select(profile =>
-            $"- {profile.Id}: {profile.Description} (Personality: {profile.Personality})"
+            $"- {profile.Id}（{profile.Name}）：{profile.Description}（性格：{profile.Personality}）"
         ));
 
-        return "You are an invisible routing agent. Your ONLY job is to analyze messages and call the handoff function. " +
-               "CRITICAL RULES:\n" +
-               "1. NEVER generate ANY text response - you are completely silent and invisible to users\n" +
-               "2. IMMEDIATELY call the handoff function without any explanation or text\n" +
-               "3. Do NOT acknowledge, greet, or respond - just route silently\n" +
-               "\n\nAvailable specialist agents:\n" +
+        return "你是一个透明的路由智能体。你的唯一任务是分析消息并调用handoff函数。\n" +
+               "关键规则：\n" +
+               "1. 永远不要生成任何文本回复 - 你对用户完全透明和不可见\n" +
+               "2. 立即调用handoff函数，不需要任何解释或文本\n" +
+               "3. 不要确认、问候或回应 - 只是默默地路由\n" +
+               "\n可用的专家智能体：\n" +
                specialistDescriptions +
-               "\n\nYour task: Analyze the message silently and immediately handoff to the most appropriate specialist. " +
-               "Choose based on topic, keywords, tone, and context. Make your decision and call handoff instantly.";
+               "\n\n你的任务：默默分析消息，然后立即将其转交给最合适的专家。" +
+               "根据话题、关键词、语气和上下文进行选择。做出决定后立即调用handoff。";
     }
 
     /// <summary>

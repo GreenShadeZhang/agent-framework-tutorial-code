@@ -12,7 +12,7 @@ public class ChatMessageSummary
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     /// <summary>
-    /// Agent ID（例如：sunny, techie, artsy, foodie）
+    /// Agent ID（例如：elena, rina, chloe, anna, sophie）
     /// 如果是用户消息则为 "user"
     /// </summary>
     public string AgentId { get; set; } = string.Empty;
