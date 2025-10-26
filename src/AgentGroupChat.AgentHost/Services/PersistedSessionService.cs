@@ -356,8 +356,9 @@ public class PersistedSessionService : IDisposable
 
             return messages.Select(pm => new ChatMessageSummary
             {
-                AgentId = pm.AgentId ?? "user",
-                AgentName = pm.AgentName ?? "User",
+                AgentId = pm.AgentId ?? (pm.IsUser ? "user" : "assistant"),
+                AgentName = pm.AgentName ?? (pm.IsUser ? "User" : "Assistant"),
+                AgentAvatar = pm.AgentAvatar ?? (pm.IsUser ? "👤" : "🤖"),
                 Content = pm.MessageText ?? string.Empty,
                 ImageUrl = pm.ImageUrl,
                 IsUser = pm.IsUser,

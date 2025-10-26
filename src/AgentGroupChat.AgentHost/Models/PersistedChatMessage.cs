@@ -48,6 +48,11 @@ public class PersistedChatMessage
     public string? AgentName { get; set; }
 
     /// <summary>
+    /// Agent 头像/表情符号（用于快速展示）
+    /// </summary>
+    public string? AgentAvatar { get; set; }
+
+    /// <summary>
     /// 是否为用户消息
     /// </summary>
     public bool IsUser { get; set; }

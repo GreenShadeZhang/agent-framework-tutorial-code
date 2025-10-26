@@ -193,6 +193,61 @@ app.MapGet("/api/mcp/servers", (McpToolService mcpService) =>
 .WithName("GetMcpServers")
 .WithOpenApi();
 
+// ===== 调试端点 =====
+
+// Debug: Get raw messages from database
+app.MapGet("/api/debug/messages/{sessionId}", (string sessionId, PersistedSessionService sessionService) =>
+{
+    var collection = sessionService.GetMessagesCollection();
+    var messages = collection.Find(m => m.SessionId == sessionId).ToList();
+    
+    return Results.Ok(new
+    {
+        SessionId = sessionId,
+        TotalMessages = messages.Count,
+        Messages = messages.Select(m => new
+        {
+            m.Id,
+            m.SessionId,
+            m.MessageId,
+            m.Timestamp,
+            MessageText = m.MessageText?.Length > 100 
+                ? m.MessageText.Substring(0, 100) + "..." 
+                : m.MessageText,
+            m.AgentId,
+            m.AgentName,
+            m.AgentAvatar,
+            m.IsUser,
+            m.Role,
+            m.ImageUrl
+        }).ToList()
+    });
+})
+.WithName("DebugGetMessages")
+.WithOpenApi();
+
+// Debug: Get all sessions with message counts
+app.MapGet("/api/debug/sessions", (PersistedSessionService sessionService) =>
+{
+    var collection = sessionService.GetMessagesCollection();
+    var sessions = sessionService.GetAllSessions();
+    
+    var result = sessions.Select(s => new
+    {
+        s.Id,
+        s.Name,
+        s.CreatedAt,
+        s.LastUpdated,
+        s.MessageCount,
+        ActualMessageCount = collection.Count(m => m.SessionId == s.Id),
+        s.IsActive
+    }).ToList();
+    
+    return Results.Ok(result);
+})
+.WithName("DebugGetSessions")
+.WithOpenApi();
+
 app.MapDefaultEndpoints();
 
 app.Run();

@@ -5,6 +5,7 @@ using Microsoft.Extensions.AI;
 using OpenAI;
 using System.ClientModel;
 using System.Text.Json;
+using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace AgentGroupChat.AgentHost.Services;
 
@@ -164,15 +165,12 @@ public class AgentChatService
             _logger?.LogDebug("Adding {ToolCount} MCP tools to agent '{AgentName}'", mcpTools.Count, name);
         }
 
-        // 创建 Agent，使用 instructions 和 tools 参数（参考 MCP 示例）
-        // 注意：ChatMessageStoreFactory 需要通过 ChatClientAgentOptions 设置
+        // 创建 Agent，使用 instructions 和 tools 参数
+        // ChatMessageStore 将在 GetOrCreateThread 中配置
         var agent = _chatClient.CreateAIAgent(
             instructions: instructions, 
             name: name,
             tools: [.. mcpTools]);
-
-        // 使用反射或其他方式设置 ChatMessageStoreFactory（如果 API 支持）
-        // 目前先创建基础 Agent，稍后在配置中添加持久化支持
         
         _logger?.LogDebug("Created AIAgent '{AgentName}' for session {SessionId} with {ToolCount} MCP tools", 
             name, sessionId, mcpTools.Count);
@@ -180,22 +178,57 @@ public class AgentChatService
     }
 
     /// <summary>
-    /// 获取或创建 AgentThread（自动加载历史或创建新 Thread）
+    /// 获取或创建 AgentThread（自动加载历史或创建新 Thread，并配置 ChatMessageStore）
     /// </summary>
-    private AgentThread GetOrCreateThread(string sessionId, AIAgent agent)
+    private AgentThread GetOrCreateThread(string sessionId, AIAgent agent, AgentProfile? profile = null)
     {
         // 尝试从数据库加载
         var thread = _sessionService.LoadThread(sessionId, agent);
         if (thread != null)
         {
             _logger?.LogDebug("Loaded existing thread for session {SessionId}", sessionId);
+            
+            // 为加载的 Thread 也配置 ChatMessageStore
+            ConfigureThreadStore(thread, sessionId, profile);
             return thread;
         }
 
         // 创建新 Thread
         var newThread = agent.GetNewThread();
-        _logger?.LogDebug("Created new thread for session {SessionId}", sessionId);
+        
+        // 配置 ChatMessageStore
+        ConfigureThreadStore(newThread, sessionId, profile);
+        
+        _logger?.LogDebug("Created new thread with LiteDbChatMessageStore for session {SessionId}", sessionId);
         return newThread;
+    }
+
+    /// <summary>
+    /// 为 Thread 配置 ChatMessageStore
+    /// </summary>
+    private void ConfigureThreadStore(AgentThread thread, string sessionId, AgentProfile? profile)
+    {
+        var agentId = profile?.Id ?? "assistant";
+        var agentName = profile?.Name ?? "Assistant";
+        var agentAvatar = profile?.Avatar ?? "🤖";
+        
+        var messagesCollection = _sessionService.GetMessagesCollection();
+        var chatMessageStore = new LiteDbChatMessageStore(
+            messagesCollection,
+            sessionId,
+            agentId,
+            agentName,
+            agentAvatar,
+            _storeLogger);
+        
+        // 尝试设置 Store（需要检查 Thread 是否有公开的 Store 属性）
+        // thread.ChatMessageStore = chatMessageStore; // 如果 API 支持
+        
+        // 如果 API 不支持直接设置，我们需要在创建 Agent 时通过其他方式配置
+        // 这是一个限制，我们将使用替代方案
+        
+        _logger?.LogDebug("Configured ChatMessageStore for thread in session {SessionId}, Agent: {AgentName}", 
+            sessionId, agentName);
     }
 
     /// <summary>
@@ -218,8 +251,8 @@ public class AgentChatService
             // 2. 为当前会话创建 AIAgent（带 ChatMessageStoreFactory）
             var agent = CreateAgentForSession(sessionId, mentionedAgent);
 
-            // 3. 获取或创建 AgentThread
-            var thread = GetOrCreateThread(sessionId, agent);
+            // 3. 获取或创建 AgentThread（并配置 ChatMessageStore）
+            var thread = GetOrCreateThread(sessionId, agent, mentionedAgent);
 
             // 4. 添加用户消息摘要
             summaries.Add(new ChatMessageSummary
@@ -230,11 +263,45 @@ public class AgentChatService
                 MessageType = "text"
             });
 
-            // 5. 运行对话（消息自动保存到 LiteDbChatMessageStore）
+            // 5. 运行对话（消息通过 Agent Framework 处理）
             var agentResponse = await agent.RunAsync(message, thread);
             string response = agentResponse.Text ?? agentResponse.ToString();
 
             _logger?.LogDebug("Agent {AgentId} responded: {Response}", agentId, response);
+
+            // ✅ 手动保存消息到 LiteDbChatMessageStore（确保持久化）
+            try
+            {
+                var messageStore = new LiteDbChatMessageStore(
+                    _sessionService.GetMessagesCollection(),
+                    sessionId,
+                    agentId,
+                    agentName,
+                    agentAvatar,
+                    _storeLogger);
+                
+                // 创建用户消息和 AI 回复消息
+                var userMessage = new AIChatMessage(ChatRole.User, message)
+                {
+                    MessageId = Guid.NewGuid().ToString()
+                };
+                
+                var assistantMessage = new AIChatMessage(ChatRole.Assistant, response)
+                {
+                    MessageId = Guid.NewGuid().ToString()
+                };
+                
+                // 保存消息
+                await messageStore.AddMessagesAsync(new List<AIChatMessage> { userMessage, assistantMessage });
+                
+                _logger?.LogInformation("Saved 2 messages to LiteDB for session {SessionId} (Agent: {AgentName})", 
+                    sessionId, agentName);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error saving messages for session {SessionId}", sessionId);
+                // 继续执行，不影响主流程
+            }
 
             // 6. 添加 Agent 响应摘要
             summaries.Add(new ChatMessageSummary

@@ -24,18 +24,40 @@ public class LiteDbChatMessageStore : ChatMessageStore
     public string SessionId { get; private set; }
 
     /// <summary>
+    /// Agent ID（用于标识消息来源）
+    /// </summary>
+    public string AgentId { get; private set; }
+
+    /// <summary>
+    /// Agent 名称（用于显示）
+    /// </summary>
+    public string AgentName { get; private set; }
+
+    /// <summary>
+    /// Agent 头像（用于显示）
+    /// </summary>
+    public string AgentAvatar { get; private set; }
+
+    /// <summary>
     /// 构造函数（用于新建 Thread）
     /// </summary>
     public LiteDbChatMessageStore(
         ILiteCollection<PersistedChatMessage> messagesCollection,
         string sessionId,
+        string agentId = "assistant",
+        string agentName = "Assistant",
+        string agentAvatar = "🤖",
         ILogger<LiteDbChatMessageStore>? logger = null)
     {
         _messagesCollection = messagesCollection ?? throw new ArgumentNullException(nameof(messagesCollection));
         SessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
+        AgentId = agentId ?? "assistant";
+        AgentName = agentName ?? "Assistant";
+        AgentAvatar = agentAvatar ?? "🤖";
         _logger = logger;
 
-        _logger?.LogDebug("Created LiteDbChatMessageStore for session {SessionId}", SessionId);
+        _logger?.LogDebug("Created LiteDbChatMessageStore for session {SessionId} with Agent {AgentName}", 
+            SessionId, AgentName);
     }
 
     /// <summary>
@@ -49,13 +71,25 @@ public class LiteDbChatMessageStore : ChatMessageStore
         _messagesCollection = messagesCollection ?? throw new ArgumentNullException(nameof(messagesCollection));
         _logger = logger;
 
-        // 从序列化状态恢复 SessionId
-        if (serializedStoreState.ValueKind is JsonValueKind.String)
+        // 从序列化状态恢复 SessionId 和 Agent 信息
+        if (serializedStoreState.ValueKind is JsonValueKind.Object)
         {
-            SessionId = serializedStoreState.Deserialize<string>() 
+            SessionId = serializedStoreState.GetProperty("sessionId").GetString() 
                 ?? throw new InvalidOperationException("Failed to deserialize SessionId from serialized state");
             
-            _logger?.LogDebug("Restored LiteDbChatMessageStore for session {SessionId}", SessionId);
+            // 恢复 Agent 信息
+            AgentId = serializedStoreState.TryGetProperty("agentId", out var agentIdProp) 
+                ? (agentIdProp.GetString() ?? "assistant") 
+                : "assistant";
+            AgentName = serializedStoreState.TryGetProperty("agentName", out var agentNameProp) 
+                ? (agentNameProp.GetString() ?? "Assistant") 
+                : "Assistant";
+            AgentAvatar = serializedStoreState.TryGetProperty("agentAvatar", out var agentAvatarProp) 
+                ? (agentAvatarProp.GetString() ?? "🤖") 
+                : "🤖";
+            
+            _logger?.LogDebug("Restored LiteDbChatMessageStore for session {SessionId} with Agent {AgentName}", 
+                SessionId, AgentName);
         }
         else
         {
@@ -72,18 +106,30 @@ public class LiteDbChatMessageStore : ChatMessageStore
     {
         try
         {
-            var persistedMessages = messages.Select(msg => new PersistedChatMessage
+            var persistedMessages = messages.Select(msg => 
             {
-                Id = $"{SessionId}_{msg.MessageId}",
-                SessionId = SessionId,
-                MessageId = msg.MessageId ?? Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow,
-                SerializedMessage = SysJsonSerializer.Serialize(msg),
-                MessageText = msg.Text,
-                Role = msg.Role.ToString(),
-                // 注意：Agent Framework 的 ChatMessage 可能没有直接的 AgentId 等字段
-                // 这些信息可能在 msg.AdditionalProperties 或其他地方
-                IsUser = msg.Role.ToString().Equals("user", StringComparison.OrdinalIgnoreCase)
+                var isUserMessage = msg.Role.ToString().Equals("user", StringComparison.OrdinalIgnoreCase);
+                
+                return new PersistedChatMessage
+                {
+                    Id = $"{SessionId}_{msg.MessageId}",
+                    SessionId = SessionId,
+                    MessageId = msg.MessageId ?? Guid.NewGuid().ToString(),
+                    Timestamp = DateTimeOffset.UtcNow,
+                    SerializedMessage = SysJsonSerializer.Serialize(msg),
+                    MessageText = msg.Text,
+                    Role = msg.Role.ToString(),
+                    
+                    // ✅ 修复：正确填充 Agent 信息
+                    AgentId = isUserMessage ? "user" : AgentId,
+                    AgentName = isUserMessage ? "User" : AgentName,
+                    AgentAvatar = isUserMessage ? "👤" : AgentAvatar,
+                    
+                    IsUser = isUserMessage,
+                    
+                    // 尝试从消息内容中提取图片 URL
+                    ImageUrl = ExtractImageUrl(msg)
+                };
             }).ToList();
 
             // LiteDB 的 Upsert 操作（插入或更新）
@@ -95,14 +141,31 @@ public class LiteDbChatMessageStore : ChatMessageStore
                 }
             }, cancellationToken);
 
-            _logger?.LogDebug("Added {Count} messages to session {SessionId}", 
-                persistedMessages.Count, SessionId);
+            _logger?.LogDebug("Added {Count} messages to session {SessionId} (Agent: {AgentName})", 
+                persistedMessages.Count, SessionId, AgentName);
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Error adding messages to session {SessionId}", SessionId);
             throw;
         }
+    }
+
+    /// <summary>
+    /// 从消息中提取图片 URL
+    /// </summary>
+    private string? ExtractImageUrl(AIChatMessage msg)
+    {
+        // 检查 AdditionalProperties
+        if (msg.AdditionalProperties?.TryGetValue("imageUrl", out var imageUrl) == true)
+        {
+            return imageUrl?.ToString();
+        }
+        
+        // TODO: 检查 Contents 中是否有图片内容（需要添加 using Microsoft.Extensions.AI）
+        // 暂时返回 null，图片 URL 通过 AdditionalProperties 传递
+        
+        return null;
     }
 
     /// <summary>
@@ -139,15 +202,24 @@ public class LiteDbChatMessageStore : ChatMessageStore
     }
 
     /// <summary>
-    /// 序列化存储状态（只序列化 SessionId）
-    /// 这是关键：不序列化消息本身，只序列化 SessionId
+    /// 序列化存储状态（保存 SessionId 和 Agent 信息）
+    /// 这是关键：不序列化消息本身，只序列化会话和 Agent 元数据
     /// </summary>
     public override JsonElement Serialize(JsonSerializerOptions? jsonSerializerOptions = null)
     {
-        _logger?.LogDebug("Serializing store state for session {SessionId}", SessionId);
+        _logger?.LogDebug("Serializing store state for session {SessionId} with Agent {AgentName}", 
+            SessionId, AgentName);
         
-        // 只序列化 SessionId，消息已经存储在 LiteDB 中
-        return SysJsonSerializer.SerializeToElement(SessionId, jsonSerializerOptions);
+        // 序列化 SessionId 和 Agent 信息
+        var state = new Dictionary<string, string>
+        {
+            ["sessionId"] = SessionId,
+            ["agentId"] = AgentId,
+            ["agentName"] = AgentName,
+            ["agentAvatar"] = AgentAvatar
+        };
+        
+        return SysJsonSerializer.SerializeToElement(state, jsonSerializerOptions);
     }
 
     /// <summary>
@@ -195,6 +267,7 @@ public class LiteDbChatMessageStore : ChatMessageStore
             {
                 AgentId = pm.AgentId ?? "user",
                 AgentName = pm.AgentName ?? "User",
+                AgentAvatar = pm.AgentAvatar ?? (pm.IsUser ? "👤" : "🤖"),
                 Content = pm.MessageText ?? string.Empty,
                 ImageUrl = pm.ImageUrl,
                 IsUser = pm.IsUser,
