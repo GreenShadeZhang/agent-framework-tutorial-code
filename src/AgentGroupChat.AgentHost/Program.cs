@@ -1,5 +1,6 @@
 using AgentGroupChat.AgentHost.Services;
 using AgentGroupChat.Models;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,7 +37,11 @@ var app = builder.Build();
 var mcpService = app.Services.GetRequiredService<McpToolService>();
 await mcpService.InitializeAsync();
 
-app.MapOpenApi();
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference();
+}
 
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();

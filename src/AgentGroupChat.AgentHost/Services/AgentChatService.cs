@@ -251,6 +251,8 @@ public class AgentChatService
             // 2. 为当前会话创建 AIAgent（带 ChatMessageStoreFactory）
             var agent = CreateAgentForSession(sessionId, mentionedAgent);
 
+
+
             // 3. 获取或创建 AgentThread（并配置 ChatMessageStore）
             var thread = GetOrCreateThread(sessionId, agent, mentionedAgent);
 
