@@ -1,4 +1,3 @@
-using AgentGroupChat.AgentHost.Data;
 using AgentGroupChat.Models;
 
 namespace AgentGroupChat.AgentHost.Services;

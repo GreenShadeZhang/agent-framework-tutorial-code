@@ -1,4 +1,4 @@
-using AgentGroupChat.AgentHost.Data;
+using AgentGroupChat.AgentHost;
 using AgentGroupChat.AgentHost.Services;
 using AgentGroupChat.Models;
 using Microsoft.EntityFrameworkCore;
