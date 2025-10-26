@@ -1,7 +1,7 @@
 # Dynamic Agent Loading - Implementation Summary
 
 ## Overview
-This implementation refactors the Agent Group Chat project to support dynamic agent loading and management, inspired by BotSharp's SaaS architecture.
+This implementation refactors the Agent Group Chat project to support dynamic agent loading and management, inspired by [BotSharp](https://github.com/SciSharp/BotSharp)'s SaaS architecture - an enterprise-grade AI multi-agent framework in .NET that features modular design, dynamic agent loading, and multi-tenant capabilities.
 
 ## Key Features Implemented
 
