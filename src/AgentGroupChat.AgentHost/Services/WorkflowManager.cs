@@ -15,6 +15,7 @@ public class WorkflowManager
     private readonly IChatClient _chatClient;
     private readonly AgentRepository _agentRepository;
     private readonly AgentGroupRepository _groupRepository;
+    private readonly McpToolService _mcpToolService;
     private readonly ILogger<WorkflowManager>? _logger;
     
     // 缓存已创建的 workflows（key: groupId）
@@ -24,11 +25,13 @@ public class WorkflowManager
         IChatClient chatClient,
         AgentRepository agentRepository,
         AgentGroupRepository groupRepository,
+        McpToolService mcpToolService,
         ILogger<WorkflowManager>? logger = null)
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRepository = agentRepository ?? throw new ArgumentNullException(nameof(agentRepository));
         _groupRepository = groupRepository ?? throw new ArgumentNullException(nameof(groupRepository));
+        _mcpToolService = mcpToolService ?? throw new ArgumentNullException(nameof(mcpToolService));
         _logger = logger;
     }
 
@@ -92,19 +95,23 @@ public class WorkflowManager
         _logger?.LogInformation("Creating workflow for group {GroupId} with {AgentCount} agents: {AgentNames}",
             groupId, agentProfiles.Count, string.Join(", ", agentProfiles.Select(a => a.Name)));
 
+        // 获取所有 MCP 工具
+        var mcpTools = _mcpToolService.GetAllTools().ToList();
+        _logger?.LogInformation("Loaded {McpToolCount} MCP tools for specialist agents", mcpTools.Count);
+
         // 生成 Triage Agent 的指令
         var triageInstructions = GenerateTriageInstructions(group, agentProfiles);
 
-        // 创建 Triage Agent
+        // 创建 Triage Agent（不使用 MCP 工具，只负责路由）
         var triageAgent = new ChatClientAgent(
             _chatClient,
             instructions: triageInstructions,
             name: $"triage_{groupId}",
             description: $"Router for {group.Name}");
 
-        _logger?.LogDebug("Created triage agent for group {GroupId}", groupId);
+        _logger?.LogDebug("Created triage agent for group {GroupId} (no tools)", groupId);
 
-        // 创建 Specialist Agents
+        // 创建 Specialist Agents（使用 MCP 工具）
         var specialistAgents = agentProfiles.Select(profile =>
             new ChatClientAgent(
                 _chatClient,
@@ -112,11 +119,12 @@ public class WorkflowManager
                     "\n\nIMPORTANT: If the user asks about something outside your expertise, " +
                     "you can suggest they ask another agent, but still provide a helpful response.",
                 name: profile.Id,
-                description: profile.Description)
+                description: profile.Description,
+                tools: [.. mcpTools])  // 为 Specialist Agents 添加 MCP 工具
         ).ToList();
 
-        _logger?.LogInformation("Created {SpecialistCount} specialist agents for group {GroupId}",
-            specialistAgents.Count, groupId);
+        _logger?.LogInformation("Created {SpecialistCount} specialist agents for group {GroupId} with {McpToolCount} MCP tools each",
+            specialistAgents.Count, groupId, mcpTools.Count);
 
         // 使用 AgentWorkflowBuilder 构建 Handoff Workflow
         var builder = AgentWorkflowBuilder.CreateHandoffBuilderWith(triageAgent);
