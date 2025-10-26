@@ -1,5 +1,7 @@
+using AgentGroupChat.AgentHost.Data;
 using AgentGroupChat.AgentHost.Services;
 using AgentGroupChat.Models;
+using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,8 +16,39 @@ builder.Services.AddProblemDetails();
 // Add HttpClient factory for MCP service
 builder.Services.AddHttpClient();
 
-// Register custom services
-builder.Services.AddSingleton<PersistedSessionService>();
+// Configure database provider (SQLite or PostgreSQL)
+var databaseProvider = builder.Configuration["DatabaseProvider"] ?? "Sqlite";
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+if (databaseProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase))
+{
+    // Use PostgreSQL
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        connectionString = builder.Configuration["ConnectionStrings:PostgreSQL"] 
+            ?? Environment.GetEnvironmentVariable("POSTGRESQL_CONNECTION_STRING")
+            ?? "Host=localhost;Database=agentchat;Username=postgres;Password=postgres";
+    }
+    
+    builder.Services.AddDbContext<AgentDbContext>(options =>
+        options.UseNpgsql(connectionString));
+}
+else
+{
+    // Use SQLite (default)
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
+        Directory.CreateDirectory(dbPath);
+        connectionString = $"Data Source={Path.Combine(dbPath, "agentchat.db")}";
+    }
+    
+    builder.Services.AddDbContext<AgentDbContext>(options =>
+        options.UseSqlite(connectionString));
+}
+
+// Register custom services with interface-based dependency injection
+builder.Services.AddScoped<ISessionService, EfCoreSessionService>();
 builder.Services.AddSingleton<McpToolService>();
 builder.Services.AddSingleton<AgentChatService>();
 
@@ -58,7 +91,7 @@ app.MapGet("/api/agents", (AgentChatService agentService) =>
 .WithOpenApi();
 
 // Get all sessions
-app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
+app.MapGet("/api/sessions", (ISessionService sessionService) =>
 {
     var sessions = sessionService.GetAllSessions();
     
@@ -80,7 +113,7 @@ app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
 .WithOpenApi();
 
 // Create new session
-app.MapPost("/api/sessions", (PersistedSessionService sessionService) =>
+app.MapPost("/api/sessions", (ISessionService sessionService) =>
 {
     var session = sessionService.CreateSession();
     
@@ -102,7 +135,7 @@ app.MapPost("/api/sessions", (PersistedSessionService sessionService) =>
 .WithOpenApi();
 
 // Get specific session
-app.MapGet("/api/sessions/{id}", (string id, PersistedSessionService sessionService) =>
+app.MapGet("/api/sessions/{id}", (string id, ISessionService sessionService) =>
 {
     var session = sessionService.GetSession(id);
     if (session == null)
@@ -126,7 +159,7 @@ app.MapGet("/api/sessions/{id}", (string id, PersistedSessionService sessionServ
 .WithOpenApi();
 
 // Send message and get streaming response
-app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentService, PersistedSessionService sessionService) =>
+app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentService, ISessionService sessionService) =>
 {
     if (string.IsNullOrWhiteSpace(request.Message) || string.IsNullOrWhiteSpace(request.SessionId))
         return Results.BadRequest("Message and SessionId are required");
@@ -146,7 +179,7 @@ app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentServi
 .WithOpenApi();
 
 // Delete session
-app.MapDelete("/api/sessions/{id}", (string id, PersistedSessionService sessionService) =>
+app.MapDelete("/api/sessions/{id}", (string id, ISessionService sessionService) =>
 {
     sessionService.DeleteSession(id);
     return Results.Ok();
@@ -155,7 +188,7 @@ app.MapDelete("/api/sessions/{id}", (string id, PersistedSessionService sessionS
 .WithOpenApi();
 
 // Clear conversation (keep session, clear messages)
-app.MapPost("/api/sessions/{id}/clear", (string id, AgentChatService agentService, PersistedSessionService sessionService) =>
+app.MapPost("/api/sessions/{id}/clear", (string id, AgentChatService agentService, ISessionService sessionService) =>
 {
     var session = sessionService.GetSession(id);
     if (session == null)
@@ -168,7 +201,7 @@ app.MapPost("/api/sessions/{id}/clear", (string id, AgentChatService agentServic
 .WithOpenApi();
 
 // Get conversation history
-app.MapGet("/api/sessions/{id}/messages", (string id, AgentChatService agentService, PersistedSessionService sessionService) =>
+app.MapGet("/api/sessions/{id}/messages", (string id, AgentChatService agentService, ISessionService sessionService) =>
 {
     var session = sessionService.GetSession(id);
     if (session == null)
@@ -181,7 +214,7 @@ app.MapGet("/api/sessions/{id}/messages", (string id, AgentChatService agentServ
 .WithOpenApi();
 
 // Get statistics
-app.MapGet("/api/stats", (PersistedSessionService sessionService) =>
+app.MapGet("/api/stats", (ISessionService sessionService) =>
 {
     var stats = sessionService.GetStatistics();
     return Results.Ok(stats);
@@ -201,10 +234,16 @@ app.MapGet("/api/mcp/servers", (McpToolService mcpService) =>
 // ===== 调试端点 =====
 
 // Debug: Get raw messages from database
-app.MapGet("/api/debug/messages/{sessionId}", (string sessionId, PersistedSessionService sessionService) =>
+app.MapGet("/api/debug/messages/{sessionId}", (string sessionId, ISessionService sessionService) =>
 {
-    var collection = sessionService.GetMessagesCollection();
-    var messages = collection.Find(m => m.SessionId == sessionId).ToList();
+    var sessionServiceImpl = sessionService as EfCoreSessionService;
+    if (sessionServiceImpl == null)
+    {
+        return Results.Problem("Session service is not EfCoreSessionService");
+    }
+    
+    var collection = sessionServiceImpl.GetMessagesCollection();
+    var messages = collection.Find(sessionId).ToList();
     
     return Results.Ok(new
     {
@@ -232,9 +271,15 @@ app.MapGet("/api/debug/messages/{sessionId}", (string sessionId, PersistedSessio
 .WithOpenApi();
 
 // Debug: Get all sessions with message counts
-app.MapGet("/api/debug/sessions", (PersistedSessionService sessionService) =>
+app.MapGet("/api/debug/sessions", (ISessionService sessionService) =>
 {
-    var collection = sessionService.GetMessagesCollection();
+    var sessionServiceImpl = sessionService as EfCoreSessionService;
+    if (sessionServiceImpl == null)
+    {
+        return Results.Problem("Session service is not EfCoreSessionService");
+    }
+    
+    var collection = sessionServiceImpl.GetMessagesCollection();
     var sessions = sessionService.GetAllSessions();
     
     var result = sessions.Select(s => new
@@ -244,7 +289,7 @@ app.MapGet("/api/debug/sessions", (PersistedSessionService sessionService) =>
         s.CreatedAt,
         s.LastUpdated,
         s.MessageCount,
-        ActualMessageCount = collection.Count(m => m.SessionId == s.Id),
+        ActualMessageCount = collection.Count(s.Id),
         s.IsActive
     }).ToList();
     

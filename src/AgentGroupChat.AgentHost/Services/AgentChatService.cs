@@ -13,7 +13,7 @@ namespace AgentGroupChat.AgentHost.Services;
 /// <summary>
 /// Service for managing multi-agent chat with TRUE handoff workflow support
 /// 使用 AgentWorkflowBuilder 实现真正的 Handoff 模式（参考官方示例）
-/// 集成 LiteDbChatMessageStore 进行消息持久化
+/// 集成 EfCoreChatMessageStore 进行消息持久化
 /// 参考：https://github.com/microsoft/agent-framework/blob/main/dotnet/samples/GettingStarted/Workflows/_Foundational/04_AgentWorkflowPatterns/Program.cs
 /// </summary>
 public class AgentChatService
@@ -21,18 +21,18 @@ public class AgentChatService
     private readonly IChatClient _chatClient;
     private readonly List<AgentProfile> _agentProfiles;
     private readonly Workflow _handoffWorkflow; // ✅ 单例 workflow，在构造函数中初始化
-    private readonly PersistedSessionService _sessionService;
+    private readonly ISessionService _sessionService;
     private readonly ImageGenerationTool _imageTool;
     private readonly McpToolService _mcpToolService;
     private readonly ILogger<AgentChatService>? _logger;
-    private readonly ILogger<LiteDbChatMessageStore>? _storeLogger;
+    private readonly ILogger<EfCoreChatMessageStore>? _storeLogger;
 
     public AgentChatService(
         IConfiguration configuration,
-        PersistedSessionService sessionService,
+        ISessionService sessionService,
         McpToolService mcpToolService,
         ILogger<AgentChatService>? logger = null,
-        ILogger<LiteDbChatMessageStore>? storeLogger = null)
+        ILogger<EfCoreChatMessageStore>? storeLogger = null)
     {
         _logger = logger;
         _storeLogger = storeLogger;
@@ -387,11 +387,19 @@ public class AgentChatService
                         });
                     }
 
-                    // 保存到 LiteDB（只保存有效消息）
+                    // 保存到 EF Core（只保存有效消息）
                     if (messagesToSave.Count > 0)
                     {
-                        var messageStore = new LiteDbChatMessageStore(
-                            _sessionService.GetMessagesCollection(),
+                        // Get message collection from session service
+                        var sessionServiceImpl = _sessionService as EfCoreSessionService;
+                        if (sessionServiceImpl == null)
+                        {
+                            _logger?.LogError("Session service is not EfCoreSessionService, cannot save messages");
+                            throw new InvalidOperationException("Session service must be EfCoreSessionService");
+                        }
+
+                        var messageStore = new EfCoreChatMessageStore(
+                            sessionServiceImpl.GetMessagesCollection(),
                             sessionId,
                             currentExecutorId,
                             currentSummary.AgentName,
@@ -400,7 +408,7 @@ public class AgentChatService
 
                         await messageStore.AddMessagesAsync(messagesToSave);
 
-                        _logger?.LogInformation("Saved {Count} messages to LiteDB for session {SessionId} (Agent: {AgentId})",
+                        _logger?.LogInformation("Saved {Count} messages to database for session {SessionId} (Agent: {AgentId})",
                             messagesToSave.Count, sessionId, currentExecutorId);
                     }
                     else
