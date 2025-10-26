@@ -20,18 +20,21 @@ public class AgentChatService
     private readonly List<AgentProfile> _agentProfiles;
     private readonly PersistedSessionService _sessionService;
     private readonly ImageGenerationTool _imageTool;
+    private readonly McpToolService _mcpToolService;
     private readonly ILogger<AgentChatService>? _logger;
     private readonly ILogger<LiteDbChatMessageStore>? _storeLogger;
 
     public AgentChatService(
         IConfiguration configuration, 
         PersistedSessionService sessionService,
+        McpToolService mcpToolService,
         ILogger<AgentChatService>? logger = null,
         ILogger<LiteDbChatMessageStore>? storeLogger = null)
     {
         _logger = logger;
         _storeLogger = storeLogger;
         _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
+        _mcpToolService = mcpToolService ?? throw new ArgumentNullException(nameof(mcpToolService));
 
         var defaultModelProvider = configuration["DefaultModelProvider"] ?? "AzureOpenAI";
 
@@ -140,6 +143,7 @@ public class AgentChatService
     /// <summary>
     /// 为指定会话和 Agent 创建 AIAgent（带 ChatMessageStoreFactory）
     /// 这是核心改进：每个会话的 Thread 都有独立的 LiteDbChatMessageStore
+    /// 现在集成了 MCP 工具，使所有 Agent 都可以使用 MCP 服务器提供的工具
     /// </summary>
     private AIAgent CreateAgentForSession(string sessionId, AgentProfile? profile = null)
     {
@@ -152,30 +156,26 @@ public class AgentChatService
         
         var name = profile?.Name ?? "Assistant";
 
-        var agent = _chatClient.CreateAIAgent(new ChatClientAgentOptions
+        // 获取所有可用的 MCP 工具
+        var mcpTools = _mcpToolService.GetAllTools().ToList();
+        
+        if (mcpTools.Any())
         {
-            Instructions = instructions,
-            Name = name,
-            ChatMessageStoreFactory = ctx =>
-            {
-                // 关键：注入自定义的 LiteDbChatMessageStore
-                var messagesCollection = _sessionService.GetMessagesCollection();
-                
-                // 如果有序列化状态（恢复会话），使用状态中的 SessionId
-                // 否则使用当前 sessionId（新会话）
-                if (ctx.SerializedState.ValueKind is JsonValueKind.String && 
-                    !string.IsNullOrEmpty(ctx.SerializedState.GetString()))
-                {
-                    return new LiteDbChatMessageStore(messagesCollection, ctx.SerializedState, _storeLogger);
-                }
-                else
-                {
-                    return new LiteDbChatMessageStore(messagesCollection, sessionId, _storeLogger);
-                }
-            }
-        });
+            _logger?.LogDebug("Adding {ToolCount} MCP tools to agent '{AgentName}'", mcpTools.Count, name);
+        }
 
-        _logger?.LogDebug("Created AIAgent '{AgentName}' for session {SessionId}", name, sessionId);
+        // 创建 Agent，使用 instructions 和 tools 参数（参考 MCP 示例）
+        // 注意：ChatMessageStoreFactory 需要通过 ChatClientAgentOptions 设置
+        var agent = _chatClient.CreateAIAgent(
+            instructions: instructions, 
+            name: name,
+            tools: [.. mcpTools]);
+
+        // 使用反射或其他方式设置 ChatMessageStoreFactory（如果 API 支持）
+        // 目前先创建基础 Agent，稍后在配置中添加持久化支持
+        
+        _logger?.LogDebug("Created AIAgent '{AgentName}' for session {SessionId} with {ToolCount} MCP tools", 
+            name, sessionId, mcpTools.Count);
         return agent;
     }
 

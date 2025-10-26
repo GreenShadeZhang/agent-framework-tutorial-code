@@ -10,8 +10,12 @@ builder.Services.AddOpenApi();
 // Add services to the container.
 builder.Services.AddProblemDetails();
 
+// Add HttpClient factory for MCP service
+builder.Services.AddHttpClient();
+
 // Register custom services
 builder.Services.AddSingleton<PersistedSessionService>();
+builder.Services.AddSingleton<McpToolService>();
 builder.Services.AddSingleton<AgentChatService>();
 
 // Enable CORS for Web frontend
@@ -25,7 +29,12 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Initialize MCP service at startup
 var app = builder.Build();
+
+// Initialize MCP connections
+var mcpService = app.Services.GetRequiredService<McpToolService>();
+await mcpService.InitializeAsync();
 
 app.MapOpenApi();
 
@@ -173,6 +182,15 @@ app.MapGet("/api/stats", (PersistedSessionService sessionService) =>
     return Results.Ok(stats);
 })
 .WithName("GetStatistics")
+.WithOpenApi();
+
+// Get MCP server information
+app.MapGet("/api/mcp/servers", (McpToolService mcpService) =>
+{
+    var servers = mcpService.GetServerInfo();
+    return Results.Ok(servers);
+})
+.WithName("GetMcpServers")
 .WithOpenApi();
 
 app.MapDefaultEndpoints();
