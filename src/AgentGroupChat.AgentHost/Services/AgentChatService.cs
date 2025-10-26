@@ -20,6 +20,7 @@ public class AgentChatService
 {
     private readonly IChatClient _chatClient;
     private readonly List<AgentProfile> _agentProfiles;
+    private readonly Workflow _handoffWorkflow; // ✅ 单例 workflow，在构造函数中初始化
     private readonly PersistedSessionService _sessionService;
     private readonly ImageGenerationTool _imageTool;
     private readonly McpToolService _mcpToolService;
@@ -132,8 +133,12 @@ public class AgentChatService
         };
 
         _logger?.LogInformation("AgentChatService initialized with {Count} agent profiles", _agentProfiles.Count);
-    }
 
+        // ✅ 在构造函数中创建一次 handoff workflow（性能优化：避免每次消息都创建）
+        _handoffWorkflow = CreateHandoffWorkflow();
+        _logger?.LogInformation("Handoff workflow initialized successfully with {AgentCount} agents",
+            _agentProfiles.Count + 1); // +1 for triage agent
+    }
     public List<AgentProfile> GetAgentProfiles() => _agentProfiles;
 
     public AgentProfile? GetAgentProfile(string agentId)
@@ -146,14 +151,14 @@ public class AgentChatService
     /// 创建真正的 Handoff Workflow（官方推荐方式）
     /// 使用 AgentWorkflowBuilder 构建 triage agent 和多个 specialist agents
     /// 实现智能路由和 agent 切换
+    /// 注意：workflow 是无状态的，可以在多个会话中安全复用
     /// </summary>
-    private Workflow CreateHandoffWorkflow(string sessionId)
+    private Workflow CreateHandoffWorkflow()
     {
         // 获取所有可用的 MCP 工具
         var mcpTools = _mcpToolService.GetAllTools().ToList();
 
-        _logger?.LogDebug("Creating handoff workflow for session {SessionId} with {ToolCount} MCP tools",
-            sessionId, mcpTools.Count);
+        _logger?.LogDebug("Creating handoff workflow with {ToolCount} MCP tools", mcpTools.Count);
 
         // 1️⃣ 动态生成 Triage Agent 的指令（基于实际的 agent profiles）
         var specialistDescriptions = string.Join("\n", _agentProfiles.Select(profile =>
@@ -201,7 +206,7 @@ public class AgentChatService
 
         var workflow = builder.Build();
 
-        _logger?.LogInformation("Handoff workflow created successfully for session {SessionId}", sessionId);
+        _logger?.LogInformation("Handoff workflow created successfully");
 
         return workflow;
     }
@@ -227,10 +232,7 @@ public class AgentChatService
                 MessageType = "text"
             });
 
-            // 2️⃣ 创建 Handoff Workflow
-            var workflow = CreateHandoffWorkflow(sessionId);
-
-            // 3️⃣ 准备消息列表（包含历史消息）
+            // 2️⃣ 准备消息列表（包含历史消息）
             var messages = new List<AIChatMessage>();
 
             // 从数据库加载历史消息
@@ -250,11 +252,11 @@ public class AgentChatService
             // 添加当前用户消息
             messages.Add(new AIChatMessage(ChatRole.User, message));
 
-            // 4️⃣ 运行 Workflow（使用 StreamingRun）
-            await using StreamingRun run = await InProcessExecution.StreamAsync(workflow, messages);
+            // 3️⃣ 运行 Workflow（✅ 复用预创建的单例 workflow，零开销）
+            await using StreamingRun run = await InProcessExecution.StreamAsync(_handoffWorkflow, messages);
             await run.TrySendMessageAsync(new TurnToken(emitEvents: true));
 
-            // 5️⃣ 处理 WorkflowEvent 流，追踪不同 agent 的执行
+            // 4️⃣ 处理 WorkflowEvent 流，追踪不同 agent 的执行
             string? currentExecutorId = null;
             ChatMessageSummary? currentSummary = null;
 
@@ -310,7 +312,7 @@ public class AgentChatService
                 }
             }
 
-            // 6️⃣ 检查是否需要生成图片（基于最后一个 agent 的响应）
+            // 5️⃣ 检查是否需要生成图片（基于最后一个 agent 的响应）
             if (currentSummary != null && ShouldGenerateImage(currentSummary.Content))
             {
                 try
@@ -338,7 +340,7 @@ public class AgentChatService
                 }
             }
 
-            // 7️⃣ 手动保存所有消息到 LiteDB
+            // 6️⃣ 手动保存所有消息到 LiteDB
             try
             {
                 var messagesToSave = new List<AIChatMessage>();
