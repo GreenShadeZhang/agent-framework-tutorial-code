@@ -1,40 +1,73 @@
 using AgentGroupChat.Models;
 using Azure.AI.OpenAI;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
-using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
+using OpenAI;
+using System.ClientModel;
 
 namespace AgentGroupChat.AgentHost.Services;
 
 /// <summary>
-/// Service for managing multi-agent chat with handoff pattern.
+/// Service for managing multi-agent chat with persistence support.
+/// 使用 AIAgent 和 AgentThread 实现官方推荐的持久化机制
 /// </summary>
 public class AgentChatService
 {
     private readonly IChatClient _chatClient;
     private readonly List<AgentProfile> _agentProfiles;
-    private readonly Dictionary<string, ChatClientAgent> _agents;
-    private readonly Workflow _workflow;
+    private readonly Dictionary<string, AIAgent> _aiAgents;
+    private readonly AIAgent _triageAgent;
     private readonly ImageGenerationTool _imageTool;
+    private readonly ILogger<AgentChatService>? _logger;
 
-    public AgentChatService(IConfiguration configuration)
+    public AgentChatService(IConfiguration configuration, ILogger<AgentChatService>? logger = null)
     {
-        // Initialize OpenAI client
-        var endpoint = configuration["AzureOpenAI:Endpoint"] ??
-                      Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ??
-                      throw new InvalidOperationException("Azure OpenAI endpoint not configured");
-        var deploymentName = configuration["AzureOpenAI:DeploymentName"] ??
-                            Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT_NAME") ??
+        _logger = logger;
+
+        var defaultModelProvider = configuration["DefaultModelProvider"] ?? "AzureOpenAI";
+
+        if (defaultModelProvider == "AzureOpenAI")
+        {
+            // Initialize OpenAI client
+            var endpoint = configuration["AzureOpenAI:Endpoint"] ??
+                          Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ??
+                          throw new InvalidOperationException("Azure OpenAI endpoint not configured");
+            var deploymentName = configuration["AzureOpenAI:DeploymentName"] ??
+                                Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT_NAME") ??
+                                "gpt-4o-mini";
+
+            var apiKey = configuration["AzureOpenAI:ApiKey"] ??
+                         Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY") ??
+                         throw new InvalidOperationException("Azure OpenAI API key not configured");
+
+            var azureClient = new AzureOpenAIClient(new Uri(endpoint), new System.ClientModel.ApiKeyCredential(apiKey))
+                .GetChatClient(deploymentName);
+            _chatClient = azureClient.AsIChatClient() ?? throw new InvalidOperationException("Failed to get chat client");
+
+        }
+        else if (defaultModelProvider == "OpenAI")
+        {
+            var baseUrl = configuration["OpenAI:BaseUrl"] ??
+                          Environment.GetEnvironmentVariable("OPENAI_BASE_URL") ??
+                          string.Empty;
+            var modelName = configuration["OpenAI:ModelName"] ??
+                            Environment.GetEnvironmentVariable("OPENAI_MODEL_NAME") ??
                             "gpt-4o-mini";
+            var apiKey = configuration["OpenAI:ApiKey"] ??
+                            Environment.GetEnvironmentVariable("OPENAI_API_KEY") ??
+                            throw new InvalidOperationException("OpenAI API key not configured");
 
-        var apiKey = configuration["AzureOpenAI:ApiKey"] ??
-                     Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY") ??
-                     throw new InvalidOperationException("Azure OpenAI API key not configured");
+            var options = !string.IsNullOrEmpty(baseUrl) ?
+                  new OpenAIClientOptions { Endpoint = new Uri(baseUrl) } : null;
+            var openAiClient = new OpenAIClient(new ApiKeyCredential(apiKey), options);
 
-        var azureClient = new AzureOpenAIClient(new Uri(endpoint), new System.ClientModel.ApiKeyCredential(apiKey))
-            .GetChatClient(deploymentName);
-        _chatClient = azureClient.AsIChatClient() ?? throw new InvalidOperationException("Failed to get chat client");
+            _chatClient = openAiClient.GetChatClient(modelName).AsIChatClient()
+                ?? throw new InvalidOperationException("Failed to get chat client");
+        }
+        else
+        {
+            throw new InvalidOperationException($"Unsupported DefaultModelProvider: {defaultModelProvider}. Supported providers are 'AzureOpenAI' and 'OpenAI'.");
+        }
 
         _imageTool = new ImageGenerationTool();
 
@@ -87,173 +120,201 @@ public class AgentChatService
             }
         };
 
-        // Create agents with image generation tool
-        _agents = new Dictionary<string, ChatClientAgent>();
+        // Create AIAgents using the official Agent Framework
+        _aiAgents = new Dictionary<string, AIAgent>();
         foreach (var profile in _agentProfiles)
         {
-            var agent = new ChatClientAgent(_chatClient, profile.SystemPrompt, profile.Id, profile.Description);
-            // Note: Tool registration would require proper Microsoft.Agents.AI API
-            // For now, we'll handle image generation separately
-            _agents[profile.Id] = agent;
+            var agent = _chatClient.CreateAIAgent(
+                instructions: profile.SystemPrompt,
+                name: profile.Name
+            );
+            _aiAgents[profile.Id] = agent;
+            
+            _logger?.LogDebug("Created AIAgent: {AgentId} ({AgentName})", profile.Id, profile.Name);
         }
 
-        // Create triage agent for routing
-        var triageAgent = new ChatClientAgent(_chatClient,
-            "You are a triage agent that routes messages to the appropriate agent based on mentions. " +
-            "When a user mentions an agent with @AgentName, you MUST handoff to that agent immediately. " +
-            "Available agents: @Sunny (cheerful), @Techie (tech-savvy), @Artsy (artistic), @Foodie (food-loving). " +
-            "ALWAYS handoff to another agent. Do NOT respond yourself - only route to the appropriate agent. " +
-            "If no specific agent is mentioned, handoff to Sunny.",
-            "triage",
-            "Routes messages to the appropriate agent");
-
-        // Build handoff workflow
-        var builder = AgentWorkflowBuilder.CreateHandoffBuilderWith(triageAgent);
-
-        // Add handoffs from triage to all agents
-        builder.WithHandoffs(triageAgent, _agents.Values.ToArray());
-
-        // Add handoffs from all agents back to triage
-        builder.WithHandoffs(_agents.Values.ToArray(), triageAgent);
-
-        _workflow = builder.Build();
+        // Create triage agent for routing (主控 Agent)
+        _triageAgent = _chatClient.CreateAIAgent(
+            instructions: "You are a helpful AI assistant that manages a group chat with multiple agents. " +
+                         "When users mention @AgentName, you help route the conversation. " +
+                         "Available agents: @Sunny (cheerful), @Techie (tech-savvy), @Artsy (artistic), @Foodie (food-loving). " +
+                         "If no specific agent is mentioned, respond naturally yourself or suggest an appropriate agent. " +
+                         "Keep responses concise and friendly.",
+            name: "Triage"
+        );
+        
+        _logger?.LogInformation("AgentChatService initialized with {Count} agents", _aiAgents.Count);
     }
 
     public List<AgentProfile> GetAgentProfiles() => _agentProfiles;
 
     public AgentProfile? GetAgentProfile(string agentId)
     {
-        // ExecutorId 可能包含 GUID 后缀，例如: "sunny_db729ea04d044192a874ec1478913318"
-        // 需要提取前缀部分来匹配 agent profile
+        // ExecutorId 可能包含后缀，需要提取前缀
         var agentIdPrefix = agentId.Contains('_') ? agentId.Split('_')[0] : agentId;
         return _agentProfiles.FirstOrDefault(a => a.Id.Equals(agentIdPrefix, StringComparison.OrdinalIgnoreCase));
     }
 
-    public async Task<List<Models.ChatMessage>> SendMessageAsync(string message, List<Models.ChatMessage> history)
+    /// <summary>
+    /// 发送消息并使用 AgentThread 管理对话
+    /// 这是核心方法，实现基于 Thread 的持久化对话
+    /// </summary>
+    public async Task<List<ChatMessageSummary>> SendMessageAsync(
+        string message, 
+        string sessionId,
+        PersistedSessionService sessionService)
     {
-        var messages = new List<Models.ChatMessage>();
+        var summaries = new List<ChatMessageSummary>();
 
         try
         {
-            // Convert history to ChatMessage format for workflow
-            var chatMessages = new List<AIChatMessage>
+            _logger?.LogDebug("Processing message for session {SessionId}: {Message}", sessionId, message);
+
+            // 1. 获取或创建 AgentThread
+            AgentThread thread = sessionService.GetOrCreateThread(sessionId, _triageAgent);
+
+            // 2. 添加用户消息摘要
+            summaries.Add(new ChatMessageSummary
             {
-                new(ChatRole.User, message)
-            };
+                Content = message,
+                IsUser = true,
+                Timestamp = DateTime.UtcNow,
+                MessageType = "text"
+            });
 
-            // Run workflow
-            await using StreamingRun run = await InProcessExecution.StreamAsync(_workflow, chatMessages);
-            await run.TrySendMessageAsync(new TurnToken(emitEvents: true));
+            // 3. 检查是否有 @mention
+            var mentionedAgent = DetectMentionedAgent(message);
+            AIAgent targetAgent = mentionedAgent != null ? _aiAgents[mentionedAgent.Id] : _triageAgent;
+            string agentId = mentionedAgent?.Id ?? "triage";
+            string agentName = mentionedAgent?.Name ?? "Assistant";
+            string agentAvatar = mentionedAgent?.Avatar ?? "🤖";
 
-            string? currentAgentId = null;
-            var responseText = new System.Text.StringBuilder();
+            // 4. 运行对话 (使用官方 RunAsync 方法)
+            var agentResponse = await targetAgent.RunAsync(message, thread);
+            string response = agentResponse.Text ?? agentResponse.ToString();
 
-            await foreach (WorkflowEvent evt in run.WatchStreamAsync())
+            _logger?.LogDebug("Agent {AgentId} responded: {Response}", agentId, response);
+
+            // 5. 添加 Agent 响应摘要
+            summaries.Add(new ChatMessageSummary
             {
-                // Debug logging
-                Console.WriteLine($"[DEBUG] Event type: {evt.GetType().Name}");
+                AgentId = agentId,
+                AgentName = agentName,
+                AgentAvatar = agentAvatar,
+                Content = response,
+                IsUser = false,
+                Timestamp = DateTime.UtcNow,
+                MessageType = "text"
+            });
 
-                if (evt is AgentRunUpdateEvent updateEvent)
+            // 6. 检查是否需要生成图片
+            if (ShouldGenerateImage(response))
+            {
+                try
                 {
-                    Console.WriteLine($"[DEBUG] AgentRunUpdateEvent - ExecutorId: {updateEvent.ExecutorId}, Update.Text: '{updateEvent.Update.Text}'");
-
-                    if (updateEvent.ExecutorId != currentAgentId)
+                    var imageUrl = await _imageTool.GenerateImage($"{mentionedAgent?.Personality ?? "casual"} scene");
+                    summaries.Add(new ChatMessageSummary
                     {
-                        // Save previous agent's message if any
-                        if (currentAgentId != null && responseText.Length > 0)
-                        {
-                            var profile = GetAgentProfile(currentAgentId);
-                            if (profile != null)
-                            {
-                                messages.Add(new Models.ChatMessage
-                                {
-                                    AgentId = profile.Id,
-                                    AgentName = profile.Name,
-                                    AgentAvatar = profile.Avatar,
-                                    Content = responseText.ToString(),
-                                    IsUser = false
-                                });
-                            }
-                            responseText.Clear();
-                        }
-                        currentAgentId = updateEvent.ExecutorId;
-                    }
-
-                    // Get text from the update - handle both Text property and Contents
-                    var updateText = updateEvent.Update.Text;
-                    if (!string.IsNullOrEmpty(updateText))
-                    {
-                        responseText.Append(updateText);
-                    }
-                    else if (updateEvent.Update.Contents != null)
-                    {
-                        // Extract text from Contents collection
-                        foreach (var content in updateEvent.Update.Contents)
-                        {
-                            if (content is TextContent textContent)
-                            {
-                                responseText.Append(textContent.Text);
-                            }
-                        }
-                    }
+                        AgentId = agentId,
+                        AgentName = agentName,
+                        AgentAvatar = agentAvatar,
+                        Content = "Here's a photo I'd like to share! 📸",
+                        ImageUrl = imageUrl,
+                        IsUser = false,
+                        Timestamp = DateTime.UtcNow,
+                        MessageType = "image"
+                    });
+                    
+                    _logger?.LogDebug("Generated image for agent {AgentId}", agentId);
                 }
-                else if (evt is WorkflowOutputEvent)
+                catch (Exception ex)
                 {
-                    // Save final message
-                    if (currentAgentId != null && responseText.Length > 0)
-                    {
-                        var profile = GetAgentProfile(currentAgentId);
-                        if (profile != null)
-                        {
-                            var content = responseText.ToString();
-                            messages.Add(new Models.ChatMessage
-                            {
-                                AgentId = profile.Id,
-                                AgentName = profile.Name,
-                                AgentAvatar = profile.Avatar,
-                                Content = content,
-                                IsUser = false
-                            });
-
-                            // Check if we should generate an image
-                            if (ShouldGenerateImage(content))
-                            {
-                                var imageUrl = await _imageTool.GenerateImage($"{profile.Personality} scene");
-                                messages.Add(new Models.ChatMessage
-                                {
-                                    AgentId = profile.Id,
-                                    AgentName = profile.Name,
-                                    AgentAvatar = profile.Avatar,
-                                    Content = $"Here's a photo I'd like to share! 📸",
-                                    ImageUrl = imageUrl,
-                                    IsUser = false
-                                });
-                            }
-                        }
-                    }
+                    _logger?.LogWarning(ex, "Failed to generate image for agent {AgentId}", agentId);
                 }
             }
+
+            // 7. 保存 Thread 到数据库（关键步骤！）
+            // 获取当前会话的所有历史摘要
+            var session = sessionService.GetSession(sessionId);
+            var allSummaries = session?.MessageSummaries ?? new List<ChatMessageSummary>();
+            allSummaries.AddRange(summaries);
+
+            sessionService.SaveThread(sessionId, thread, allSummaries);
+            
+            _logger?.LogInformation("Saved thread for session {SessionId}, total messages: {Count}", 
+                sessionId, allSummaries.Count);
+
+            return summaries;
         }
         catch (Exception ex)
         {
-            messages.Add(new Models.ChatMessage
+            _logger?.LogError(ex, "Error processing message for session {SessionId}", sessionId);
+            
+            // 返回错误消息
+            summaries.Add(new ChatMessageSummary
             {
                 AgentId = "system",
                 AgentName = "System",
                 AgentAvatar = "⚠️",
                 Content = $"Error: {ex.Message}",
-                IsUser = false
+                IsUser = false,
+                MessageType = "error",
+                Timestamp = DateTime.UtcNow
             });
+            
+            return summaries;
         }
-
-        return messages;
     }
 
+    /// <summary>
+    /// 检测消息中提到的 Agent
+    /// </summary>
+    private AgentProfile? DetectMentionedAgent(string message)
+    {
+        foreach (var profile in _agentProfiles)
+        {
+            if (message.Contains($"@{profile.Name}", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains($"@{profile.Id}", StringComparison.OrdinalIgnoreCase))
+            {
+                return profile;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 判断是否应该生成图片
+    /// </summary>
     private bool ShouldGenerateImage(string content)
     {
-        // Simple heuristic to determine if agent should share an image
+        // 简单启发式规则
         var imageKeywords = new[] { "photo", "picture", "image", "show", "look", "see", "here" };
         return imageKeywords.Any(keyword => content.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-               && new Random().Next(0, 2) == 0; // 50% chance
+               && new Random().Next(0, 2) == 0; // 50% 概率
+    }
+
+    /// <summary>
+    /// 获取会话的对话历史（从摘要）
+    /// </summary>
+    public List<ChatMessageSummary> GetConversationHistory(string sessionId, PersistedSessionService sessionService)
+    {
+        var session = sessionService.GetSession(sessionId);
+        return session?.MessageSummaries ?? new List<ChatMessageSummary>();
+    }
+
+    /// <summary>
+    /// 清除会话的 Thread（重新开始对话）
+    /// </summary>
+    public void ClearConversation(string sessionId, PersistedSessionService sessionService)
+    {
+        var session = sessionService.GetSession(sessionId);
+        if (session != null)
+        {
+            // 创建新的空 thread
+            var newThread = _triageAgent.GetNewThread();
+            sessionService.SaveThread(sessionId, newThread, new List<ChatMessageSummary>());
+            
+            _logger?.LogInformation("Cleared conversation for session {SessionId}", sessionId);
+        }
     }
 }

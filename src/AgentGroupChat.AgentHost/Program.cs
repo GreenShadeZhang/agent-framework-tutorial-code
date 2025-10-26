@@ -10,19 +10,8 @@ builder.Services.AddOpenApi();
 // Add services to the container.
 builder.Services.AddProblemDetails();
 
-// Configure Azure OpenAI chat client
-var azureOpenAIEndpoint = builder.Configuration["AzureOpenAI:Endpoint"];
-var azureOpenAIKey = builder.Configuration["AzureOpenAI:ApiKey"];
-var azureOpenAIDeploymentName = builder.Configuration["AzureOpenAI:DeploymentName"];
-
-if (string.IsNullOrEmpty(azureOpenAIEndpoint) || string.IsNullOrEmpty(azureOpenAIKey))
-{
-    throw new InvalidOperationException(
-        "Azure OpenAI configuration is missing. Please set AzureOpenAI:Endpoint and AzureOpenAI:ApiKey in appsettings.json or environment variables.");
-}
-
 // Register custom services
-builder.Services.AddSingleton<SessionService>();
+builder.Services.AddSingleton<PersistedSessionService>();
 builder.Services.AddSingleton<AgentChatService>();
 
 // Enable CORS for Web frontend
@@ -55,7 +44,7 @@ app.MapGet("/api/agents", (AgentChatService agentService) =>
 .WithOpenApi();
 
 // Get all sessions
-app.MapGet("/api/sessions", (SessionService sessionService) =>
+app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
 {
     return Results.Ok(sessionService.GetAllSessions());
 })
@@ -63,7 +52,7 @@ app.MapGet("/api/sessions", (SessionService sessionService) =>
 .WithOpenApi();
 
 // Create new session
-app.MapPost("/api/sessions", (SessionService sessionService) =>
+app.MapPost("/api/sessions", (PersistedSessionService sessionService) =>
 {
     var session = sessionService.CreateSession();
     return Results.Ok(session);
@@ -72,7 +61,7 @@ app.MapPost("/api/sessions", (SessionService sessionService) =>
 .WithOpenApi();
 
 // Get specific session
-app.MapGet("/api/sessions/{id}", (string id, SessionService sessionService) =>
+app.MapGet("/api/sessions/{id}", (string id, PersistedSessionService sessionService) =>
 {
     var session = sessionService.GetSession(id);
     if (session == null)
@@ -83,7 +72,7 @@ app.MapGet("/api/sessions/{id}", (string id, SessionService sessionService) =>
 .WithOpenApi();
 
 // Send message and get streaming response
-app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentService, SessionService sessionService) =>
+app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentService, PersistedSessionService sessionService) =>
 {
     if (string.IsNullOrWhiteSpace(request.Message) || string.IsNullOrWhiteSpace(request.SessionId))
         return Results.BadRequest("Message and SessionId are required");
@@ -92,28 +81,59 @@ app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentServi
     if (session == null)
         return Results.NotFound("Session not found");
 
-    // Add user message to session
-    var userMsg = new AgentGroupChat.Models.ChatMessage
-    {
-        Content = request.Message,
-        IsUser = true
-    };
-    session.Messages.Add(userMsg);
-    sessionService.UpdateSession(session);
-
-    // Get agent responses
-    var responses = await agentService.SendMessageAsync(request.Message, session.Messages);
-    
-    // Add responses to session
-    foreach (var response in responses)
-    {
-        session.Messages.Add(response);
-    }
-    sessionService.UpdateSession(session);
+    // 发送消息并自动持久化（使用新的 API）
+    var responses = await agentService.SendMessageAsync(
+        request.Message, 
+        request.SessionId,
+        sessionService);
 
     return Results.Ok(responses);
 })
 .WithName("SendChatMessage")
+.WithOpenApi();
+
+// Delete session
+app.MapDelete("/api/sessions/{id}", (string id, PersistedSessionService sessionService) =>
+{
+    sessionService.DeleteSession(id);
+    return Results.Ok();
+})
+.WithName("DeleteSession")
+.WithOpenApi();
+
+// Clear conversation (keep session, clear messages)
+app.MapPost("/api/sessions/{id}/clear", (string id, AgentChatService agentService, PersistedSessionService sessionService) =>
+{
+    var session = sessionService.GetSession(id);
+    if (session == null)
+        return Results.NotFound("Session not found");
+    
+    agentService.ClearConversation(id, sessionService);
+    return Results.Ok();
+})
+.WithName("ClearConversation")
+.WithOpenApi();
+
+// Get conversation history
+app.MapGet("/api/sessions/{id}/messages", (string id, AgentChatService agentService, PersistedSessionService sessionService) =>
+{
+    var session = sessionService.GetSession(id);
+    if (session == null)
+        return Results.NotFound("Session not found");
+    
+    var history = agentService.GetConversationHistory(id, sessionService);
+    return Results.Ok(history);
+})
+.WithName("GetConversationHistory")
+.WithOpenApi();
+
+// Get statistics
+app.MapGet("/api/stats", (PersistedSessionService sessionService) =>
+{
+    var stats = sessionService.GetStatistics();
+    return Results.Ok(stats);
+})
+.WithName("GetStatistics")
 .WithOpenApi();
 
 app.MapDefaultEndpoints();

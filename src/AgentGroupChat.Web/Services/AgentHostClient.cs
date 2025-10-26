@@ -112,9 +112,77 @@ public class AgentHostClient
                     AgentName = "System",
                     AgentAvatar = "⚠️",
                     Content = $"Error: {ex.Message}. Please check your configuration and ensure AgentHost is running.",
-                    IsUser = false
+                    IsUser = false,
+                    MessageType = "error"
                 }
             };
+        }
+    }
+
+    /// <summary>
+    /// Delete a chat session.
+    /// </summary>
+    public async Task<bool> DeleteSessionAsync(string sessionId)
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"api/sessions/{sessionId}");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete session {SessionId}", sessionId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Clear conversation in a session (keep session, remove messages).
+    /// </summary>
+    public async Task<bool> ClearConversationAsync(string sessionId)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync($"api/sessions/{sessionId}/clear", null);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear conversation for session {SessionId}", sessionId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Get conversation history for a session.
+    /// </summary>
+    public async Task<List<ChatMessage>> GetConversationHistoryAsync(string sessionId)
+    {
+        try
+        {
+            var messages = await _httpClient.GetFromJsonAsync<List<ChatMessage>>($"api/sessions/{sessionId}/messages");
+            return messages ?? new List<ChatMessage>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get conversation history for session {SessionId}", sessionId);
+            return new List<ChatMessage>();
+        }
+    }
+
+    /// <summary>
+    /// Get system statistics.
+    /// </summary>
+    public async Task<Dictionary<string, object>?> GetStatisticsAsync()
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<Dictionary<string, object>>("api/stats");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get statistics from AgentHost");
+            return null;
         }
     }
 }
