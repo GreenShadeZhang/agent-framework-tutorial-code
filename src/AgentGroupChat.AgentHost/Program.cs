@@ -50,7 +50,7 @@ else
 // Register custom services with interface-based dependency injection
 builder.Services.AddScoped<ISessionService, EfCoreSessionService>();
 builder.Services.AddSingleton<McpToolService>();
-builder.Services.AddSingleton<AgentChatService>();
+builder.Services.AddScoped<AgentChatService>();
 
 // Enable CORS for Web frontend
 builder.Services.AddCors(options =>
