@@ -18,23 +18,22 @@ public class PersistedSessionService : IDisposable
     private readonly ILiteCollection<PersistedChatSession> _sessions;
     private readonly ILiteCollection<PersistedChatMessage> _messages;
     private readonly ILogger<PersistedSessionService>? _logger;
+    private readonly bool _ownsDatabase; // 标记是否拥有数据库实例（用于决定是否 Dispose）
     
     // 内存缓存：热会话（最近访问的会话）
     private readonly Dictionary<string, (PersistedChatSession Session, DateTime LastAccess)> _hotCache;
     private readonly int _maxCacheSize = 10;
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(30);
 
-    public PersistedSessionService(ILogger<PersistedSessionService>? logger = null)
+    /// <summary>
+    /// 构造函数（使用依赖注入的 LiteDatabase 单例）- 推荐方式
+    /// </summary>
+    public PersistedSessionService(LiteDatabase database, ILogger<PersistedSessionService>? logger = null)
     {
+        _database = database ?? throw new ArgumentNullException(nameof(database));
         _logger = logger;
         _hotCache = new Dictionary<string, (PersistedChatSession, DateTime)>();
-
-        // 初始化 LiteDB
-        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
-        Directory.CreateDirectory(dbPath);
-        
-        var dbFilePath = Path.Combine(dbPath, "sessions.db");
-        _database = new LiteDatabase(dbFilePath);
+        _ownsDatabase = false; // 不拥有数据库，不负责 Dispose
         
         // 获取会话和消息集合
         _sessions = _database.GetCollection<PersistedChatSession>("sessions");
@@ -50,7 +49,7 @@ public class PersistedSessionService : IDisposable
         _messages.EnsureIndex(x => x.Timestamp);
         _messages.EnsureIndex(x => x.Id);
         
-        _logger?.LogInformation("PersistedSessionService initialized with database at: {DbPath}", dbFilePath);
+        _logger?.LogInformation("PersistedSessionService initialized using injected LiteDatabase instance");
     }
 
     #region 基础 CRUD 操作
@@ -512,6 +511,12 @@ public class PersistedSessionService : IDisposable
     public void Dispose()
     {
         _logger?.LogInformation("Disposing PersistedSessionService");
-        _database?.Dispose();
+        
+        // 只有当我们拥有数据库实例时才 Dispose
+        // 使用 DI 的单例实例由容器管理，不应该在这里 Dispose
+        if (_ownsDatabase)
+        {
+            _database?.Dispose();
+        }
     }
 }

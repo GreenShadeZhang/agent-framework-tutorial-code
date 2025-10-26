@@ -19,13 +19,19 @@ builder.Services.AddProblemDetails();
 // Add HttpClient factory for MCP service
 builder.Services.AddHttpClient();
 
-// Register LiteDB database as singleton
+// Register LiteDB database as singleton with shared mode for better concurrency
 builder.Services.AddSingleton<LiteDatabase>(sp =>
 {
     var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
     Directory.CreateDirectory(dbPath);
     var dbFilePath = Path.Combine(dbPath, "sessions.db");
-    return new LiteDatabase(dbFilePath);
+    
+    // 使用连接字符串配置 LiteDB
+    // Mode=Shared: 允许多个进程/线程读取，但写入时会锁定
+    // Connection=shared: 共享连接模式，提高并发性能
+    var connectionString = $"Filename={dbFilePath};Mode=Shared;Connection=shared";
+    
+    return new LiteDatabase(connectionString);
 });
 
 // Register repositories
