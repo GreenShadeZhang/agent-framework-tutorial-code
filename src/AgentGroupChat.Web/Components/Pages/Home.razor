@@ -29,13 +29,14 @@
         <MudList T="string">
             @foreach (var session in _sessions)
             {
-                <MudListItem Class="@(_currentSession?.Id == session.Id ? "mud-primary-text" : "")"
-                             Style="@(_currentSession?.Id == session.Id ? "background-color: var(--mud-palette-primary-lighten); border-left: 3px solid var(--mud-palette-primary);" : "")"
+                <MudListItem Class="@($"session-list-item {(_currentSession?.Id == session.Id ? "selected" : "")}")"
                              T="string">
                     <div class="d-flex align-center justify-space-between" style="width: 100%;">
                         <div class="d-flex flex-column flex-grow-1" @onclick="() => LoadSession(session.Id)" style="cursor: pointer;">
                             <MudText Typo="Typo.body1"><strong>@session.Name</strong></MudText>
-                            <MudText Typo="Typo.body2" Color="Color.Secondary">@session.LastUpdated.ToString("MMM dd, HH:mm")</MudText>
+                            <MudText Typo="Typo.body2" Style="@(_currentSession?.Id == session.Id ? "color: rgba(139, 92, 246, 0.8);" : "opacity: 0.7;")">
+                                @session.LastUpdated.ToString("MMM dd, HH:mm")
+                            </MudText>
                         </div>
                         <MudIconButton Icon="@Icons.Material.Filled.Delete" 
                                        Color="Color.Error" 
@@ -73,43 +74,45 @@
         </MudPaper>
 
         <!-- Messages Container -->
-        <div class="flex-grow-1 overflow-auto pa-4" style="background: linear-gradient(to bottom, #f5f3ff 0%, #ffffff 100%);" @ref="_messagesContainer">
+        <div class="flex-grow-1 overflow-auto pa-4 messages-container" style="background: linear-gradient(to bottom, #f5f3ff 0%, #ffffff 100%);" @ref="_messagesContainer">
             @if (_currentSession?.Messages != null)
             {
                 @foreach (var msg in _currentSession.Messages)
                 {
-                    <div class="mb-4 d-flex @(msg.IsUser ? "justify-end" : "justify-start")">
+                    <div class="mb-3 d-flex @(msg.IsUser ? "justify-end" : "justify-start")">
                         @if (!msg.IsUser)
                         {
-                            <MudAvatar Color="Color.Primary" Size="Size.Medium" Class="mr-3" Style="align-self: flex-start;">
+                            <MudAvatar Color="Color.Primary" Size="Size.Medium" Class="mr-2 avatar-top" Style="flex-shrink: 0;">
                                 @msg.AgentAvatar
                             </MudAvatar>
                         }
                         
-                        <div style="max-width: 65%;">
+                        <div class="message-wrapper" style="max-width: 70%;">
                             @if (!msg.IsUser)
                             {
-                                <MudText Typo="Typo.caption" Color="Color.Primary" Class="mb-1 ml-2">
+                                <MudText Typo="Typo.caption" Color="Color.Primary" Class="mb-1 ml-1">
                                     <strong>@msg.AgentName</strong>
                                 </MudText>
                             }
                             
-                            <MudPaper Elevation="2" 
-                                      Class="pa-3" 
-                                      Style="@(msg.IsUser ? "background: linear-gradient(135deg, var(--mud-palette-primary) 0%, var(--mud-palette-secondary) 100%); color: white;" : "")">
-                                <MudText Typo="Typo.body2" Style="@(msg.IsUser ? "color: white;" : "")">
+                            <MudPaper Elevation="1" 
+                                      Class="@($"message-bubble {(msg.IsUser ? "user-message" : "agent-message")}")"
+                                      Style="@(msg.IsUser ? "background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%); color: white; border-radius: 18px 18px 4px 18px;" : "background: white; border-radius: 18px 18px 18px 4px;")">
+                                <MudText Typo="Typo.body2" Style="@(msg.IsUser ? "color: white;" : "color: #1e1e1e;")">
                                     @((MarkupString)Markdown.ToHtml(msg.Content ?? string.Empty))
                                 </MudText>
                                 
                                 @if (!string.IsNullOrEmpty(msg.ImageUrl))
                                 {
-                                    <MudImage Src="@msg.ImageUrl" 
-                                              Alt="Shared image" 
-                                              Class="mt-2 rounded" 
-                                              Style="max-width: 100%;" />
+                                    <div class="mt-2">
+                                        <MudImage Src="@msg.ImageUrl" 
+                                                  Alt="Shared image" 
+                                                  Class="message-image" 
+                                                  Style="max-width: 100%; max-height: 300px; width: auto; height: auto; border-radius: 12px; display: block; object-fit: contain;" />
+                                    </div>
                                 }
                                 
-                                <MudText Typo="Typo.caption" Class="mt-1" Style="@(msg.IsUser ? "color: rgba(255,255,255,0.7);" : "opacity: 0.6;")">
+                                <MudText Typo="Typo.caption" Class="mt-1" Style="@(msg.IsUser ? "color: rgba(255,255,255,0.8); font-size: 0.7rem;" : "color: #999; font-size: 0.7rem;")">
                                     @msg.Timestamp.ToString("HH:mm")
                                 </MudText>
                             </MudPaper>
@@ -117,7 +120,7 @@
                         
                         @if (msg.IsUser)
                         {
-                            <MudAvatar Color="Color.Success" Size="Size.Medium" Class="ml-3" Style="align-self: flex-start;">
+                            <MudAvatar Color="Color.Success" Size="Size.Medium" Class="ml-2 avatar-top" Style="flex-shrink: 0;">
                                 <MudIcon Icon="@Icons.Material.Filled.Person" />
                             </MudAvatar>
                         }
@@ -127,13 +130,13 @@
             
             @if (_isLoading)
             {
-                <div class="mb-4 d-flex justify-start">
-                    <MudAvatar Color="Color.Primary" Size="Size.Medium" Class="mr-3">
+                <div class="mb-3 d-flex justify-start">
+                    <MudAvatar Color="Color.Primary" Size="Size.Medium" Class="mr-2" Style="flex-shrink: 0;">
                         <MudIcon Icon="@Icons.Material.Filled.HourglassBottom" />
                     </MudAvatar>
-                    <MudPaper Elevation="2" Class="pa-3">
+                    <MudPaper Elevation="1" Class="pa-3 agent-message" Style="background: white; border-radius: 18px 18px 18px 4px;">
                         <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
-                        <MudText Typo="Typo.body2" Class="ml-2 d-inline">Thinking...</MudText>
+                        <MudText Typo="Typo.body2" Class="ml-2 d-inline">思考中...</MudText>
                     </MudPaper>
                 </div>
             }

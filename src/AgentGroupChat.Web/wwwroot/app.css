@@ -28,6 +28,20 @@ html, body {
     background-color: rgba(139, 92, 246, 0.08) !important;
 }
 
+/* Session list item selected state - better contrast */
+.sidebar-panel .session-list-item.selected {
+    background-color: rgba(139, 92, 246, 0.12) !important;
+    border-left: 3px solid rgb(139, 92, 246);
+}
+
+.sidebar-panel .session-list-item.selected .mud-text {
+    color: rgb(30, 30, 30) !important;
+}
+
+.sidebar-panel .session-list-item.selected:hover {
+    background-color: rgba(139, 92, 246, 0.15) !important;
+}
+
 /* Custom scrollbar for better appearance */
 ::-webkit-scrollbar {
     width: 8px;
@@ -50,6 +64,166 @@ html, body {
 /* Message container smooth scroll */
 .overflow-auto {
     scroll-behavior: smooth;
+}
+
+/* Modern chat message styles */
+.messages-container {
+    padding: 16px 24px !important;
+}
+
+.message-wrapper {
+    display: flex;
+    flex-direction: column;
+}
+
+.message-bubble {
+    padding: 10px 14px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.user-message {
+    box-shadow: 0 2px 4px rgba(139, 92, 246, 0.2) !important;
+}
+
+.agent-message {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Avatar positioning */
+.avatar-top {
+    margin-top: 4px;
+}
+
+/* Message image constraints - modern chat app style */
+.message-image {
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.message-image:hover {
+    transform: scale(1.02);
+}
+
+/* Tighter spacing between messages for modern look */
+.messages-container > div {
+    margin-bottom: 12px !important;
+}
+
+/* Message bubble content spacing */
+.message-bubble p {
+    margin: 0;
+    line-height: 1.5;
+}
+
+.message-bubble p + p {
+    margin-top: 8px;
+}
+
+/* Images in Markdown content - prevent overflow */
+.message-bubble img {
+    max-width: 100%;
+    max-height: 400px;
+    height: auto;
+    width: auto;
+    border-radius: 8px;
+    margin: 8px 0;
+    display: block;
+    object-fit: contain;
+}
+
+/* Links in messages */
+.message-bubble a {
+    color: inherit;
+    text-decoration: underline;
+    opacity: 0.9;
+}
+
+.message-bubble a:hover {
+    opacity: 1;
+}
+
+/* Code blocks in messages */
+.message-bubble pre {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 8px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 8px 0;
+    max-width: 100%;
+}
+
+.user-message pre {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.message-bubble code {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+/* Inline code */
+.message-bubble p code {
+    background: rgba(0, 0, 0, 0.08);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.user-message p code {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* Lists in messages */
+.message-bubble ul,
+.message-bubble ol {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.message-bubble li {
+    margin: 4px 0;
+}
+
+/* Tables in messages */
+.message-bubble table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 8px 0;
+    font-size: 0.9em;
+}
+
+.message-bubble th,
+.message-bubble td {
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    padding: 6px 10px;
+    text-align: left;
+}
+
+.user-message th,
+.user-message td {
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.message-bubble th {
+    background: rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+}
+
+.user-message th {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* Blockquotes in messages */
+.message-bubble blockquote {
+    border-left: 3px solid rgba(139, 92, 246, 0.5);
+    margin: 8px 0;
+    padding-left: 12px;
+    opacity: 0.9;
+}
+
+.user-message blockquote {
+    border-left-color: rgba(255, 255, 255, 0.5);
 }
 
 /* Animation for messages */
