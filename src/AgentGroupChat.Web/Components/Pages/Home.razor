@@ -1,6 +1,7 @@
 @page "/"
 @using AgentGroupChat.Models
 @using AgentGroupChat.Web.Services
+@using Markdig
 @inject AgentHostClient AgentHostClient
 @inject IDialogService DialogService
 
@@ -97,7 +98,7 @@
                                       Class="pa-3" 
                                       Style="@(msg.IsUser ? "background: linear-gradient(135deg, var(--mud-palette-primary) 0%, var(--mud-palette-secondary) 100%); color: white;" : "")">
                                 <MudText Typo="Typo.body2" Style="@(msg.IsUser ? "color: white;" : "")">
-                                    @msg.Content
+                                    @((MarkupString)Markdown.ToHtml(msg.Content ?? string.Empty))
                                 </MudText>
                                 
                                 @if (!string.IsNullOrEmpty(msg.ImageUrl))
