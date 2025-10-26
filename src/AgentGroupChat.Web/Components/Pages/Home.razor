@@ -1,0 +1,377 @@
+@page "/"
+@using AgentGroupChat.Models
+@using AgentGroupChat.Web.Services
+@using Markdig
+@inject AgentHostClient AgentHostClient
+@inject IDialogService DialogService
+
+<PageTitle>Agent Group Chat</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.False" Class="d-flex" Style="height: calc(100vh - 64px); padding: 0;">
+    <!-- Sidebar -->
+    <MudPaper Elevation="0" Class="sidebar-panel" Style="width: 320px; border-right: 1px solid var(--mud-palette-divider);">
+        <div class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-3">
+                <MudIcon Icon="@Icons.Material.Filled.Forum" Class="mr-2" />
+                Conversations
+            </MudText>
+            <MudButton Variant="Variant.Filled" 
+                       Color="Color.Primary" 
+                       FullWidth="true" 
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="CreateNewSessionAsync">
+                New Chat
+            </MudButton>
+        </div>
+        
+        <MudDivider />
+        
+        <MudList T="string">
+            @foreach (var session in _sessions)
+            {
+                <MudListItem Class="@(_currentSession?.Id == session.Id ? "mud-primary-text" : "")"
+                             Style="@(_currentSession?.Id == session.Id ? "background-color: var(--mud-palette-primary-lighten); border-left: 3px solid var(--mud-palette-primary);" : "")"
+                             T="string">
+                    <div class="d-flex align-center justify-space-between" style="width: 100%;">
+                        <div class="d-flex flex-column flex-grow-1" @onclick="() => LoadSession(session.Id)" style="cursor: pointer;">
+                            <MudText Typo="Typo.body1"><strong>@session.Name</strong></MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">@session.LastUpdated.ToString("MMM dd, HH:mm")</MudText>
+                        </div>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                       Color="Color.Error" 
+                                       Size="Size.Small"
+                                       @onclick="() => DeleteSessionWithConfirmation(session.Id)"
+                                       title="删除会话"
+                                       Class="ml-2" />
+                    </div>
+                </MudListItem>
+            }
+        </MudList>
+    </MudPaper>
+
+    <!-- Main Chat Area -->
+    <div class="d-flex flex-column flex-grow-1">
+        <!-- Chat Header -->
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.h5" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" />
+                Agent Group Chat
+            </MudText>
+            <div class="d-flex flex-wrap gap-2 align-center">
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mr-2">Available Agents:</MudText>
+                @foreach (var agent in _agents)
+                {
+                    <MudChip Color="Color.Primary" 
+                             Size="Size.Small" 
+                             Variant="Variant.Outlined"
+                             title="@agent.Description"
+                             T="string">
+                        @agent.Avatar @agent.Name
+                    </MudChip>
+                }
+            </div>
+        </MudPaper>
+
+        <!-- Messages Container -->
+        <div class="flex-grow-1 overflow-auto pa-4" style="background: linear-gradient(to bottom, #f5f3ff 0%, #ffffff 100%);" @ref="_messagesContainer">
+            @if (_currentSession?.Messages != null)
+            {
+                @foreach (var msg in _currentSession.Messages)
+                {
+                    <div class="mb-4 d-flex @(msg.IsUser ? "justify-end" : "justify-start")">
+                        @if (!msg.IsUser)
+                        {
+                            <MudAvatar Color="Color.Primary" Size="Size.Medium" Class="mr-3" Style="align-self: flex-start;">
+                                @msg.AgentAvatar
+                            </MudAvatar>
+                        }
+                        
+                        <div style="max-width: 65%;">
+                            @if (!msg.IsUser)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Primary" Class="mb-1 ml-2">
+                                    <strong>@msg.AgentName</strong>
+                                </MudText>
+                            }
+                            
+                            <MudPaper Elevation="2" 
+                                      Class="pa-3" 
+                                      Style="@(msg.IsUser ? "background: linear-gradient(135deg, var(--mud-palette-primary) 0%, var(--mud-palette-secondary) 100%); color: white;" : "")">
+                                <MudText Typo="Typo.body2" Style="@(msg.IsUser ? "color: white;" : "")">
+                                    @((MarkupString)Markdown.ToHtml(msg.Content ?? string.Empty))
+                                </MudText>
+                                
+                                @if (!string.IsNullOrEmpty(msg.ImageUrl))
+                                {
+                                    <MudImage Src="@msg.ImageUrl" 
+                                              Alt="Shared image" 
+                                              Class="mt-2 rounded" 
+                                              Style="max-width: 100%;" />
+                                }
+                                
+                                <MudText Typo="Typo.caption" Class="mt-1" Style="@(msg.IsUser ? "color: rgba(255,255,255,0.7);" : "opacity: 0.6;")">
+                                    @msg.Timestamp.ToString("HH:mm")
+                                </MudText>
+                            </MudPaper>
+                        </div>
+                        
+                        @if (msg.IsUser)
+                        {
+                            <MudAvatar Color="Color.Success" Size="Size.Medium" Class="ml-3" Style="align-self: flex-start;">
+                                <MudIcon Icon="@Icons.Material.Filled.Person" />
+                            </MudAvatar>
+                        }
+                    </div>
+                }
+            }
+            
+            @if (_isLoading)
+            {
+                <div class="mb-4 d-flex justify-start">
+                    <MudAvatar Color="Color.Primary" Size="Size.Medium" Class="mr-3">
+                        <MudIcon Icon="@Icons.Material.Filled.HourglassBottom" />
+                    </MudAvatar>
+                    <MudPaper Elevation="2" Class="pa-3">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                        <MudText Typo="Typo.body2" Class="ml-2 d-inline">Thinking...</MudText>
+                    </MudPaper>
+                </div>
+            }
+        </div>
+
+        <!-- Input Area -->
+        <MudPaper Elevation="3" Class="pa-4">
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">
+                💡 Tip: Use @("@") to mention an agent (e.g., @("@")Sunny, @("@")Techie, @("@")Artsy, @("@")Foodie)
+            </MudAlert>
+            
+            <div class="d-flex gap-3 align-end">
+                <MudTextField @bind-Value="_inputMessage" 
+                              Placeholder="@PlaceholderText"
+                              Variant="Variant.Outlined" 
+                              Lines="3"
+                              Disabled="_isLoading"
+                              Immediate="true"
+                              OnKeyDown="HandleKeyPress"
+                              Class="flex-grow-1" />
+                
+                <MudButton Variant="Variant.Filled" 
+                           Color="Color.Primary" 
+                           EndIcon="@Icons.Material.Filled.Send"
+                           Size="Size.Large"
+                           OnClick="SendMessage"
+                           Disabled="@(_isLoading || string.IsNullOrWhiteSpace(_inputMessage))">
+                    Send
+                </MudButton>
+            </div>
+        </MudPaper>
+    </div>
+</MudContainer>
+
+@code {
+    private const string PlaceholderText = "Type your message... Use @ to mention an agent";
+    private List<ChatSession> _sessions = new();
+    private ChatSession? _currentSession;
+    private List<AgentProfile> _agents = new();
+    private string _inputMessage = string.Empty;
+    private bool _isLoading = false;
+    private ElementReference _messagesContainer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load agents from API
+        _agents = await AgentHostClient.GetAgentsAsync();
+        
+        // Load sessions from API
+        await LoadSessionsAsync();
+        
+        // Create a default session if none exist
+        if (_sessions.Count == 0)
+        {
+            await CreateNewSessionAsync();
+        }
+        else
+        {
+            // 加载第一个会话及其历史消息
+            await LoadSession(_sessions.First().Id);
+        }
+    }
+
+    private async Task LoadSessionsAsync()
+    {
+        _sessions = await AgentHostClient.GetSessionsAsync();
+        StateHasChanged();
+    }
+
+    private async Task CreateNewSessionAsync()
+    {
+        var newSession = await AgentHostClient.CreateSessionAsync();
+        if (newSession != null)
+        {
+            _currentSession = newSession;
+            _sessions.Insert(0, newSession);
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadSession(string sessionId)
+    {
+        // 加载会话基本信息
+        _currentSession = await AgentHostClient.GetSessionAsync(sessionId);
+        
+        // 加载会话的历史消息
+        if (_currentSession != null)
+        {
+            var history = await AgentHostClient.GetConversationHistoryAsync(sessionId);
+            _currentSession.Messages = history;
+        }
+        
+        StateHasChanged();
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_inputMessage) || _currentSession == null)
+            return;
+
+        _isLoading = true;
+        var userMessage = _inputMessage;
+        _inputMessage = string.Empty;
+
+        // ✅ 立即显示用户消息（乐观 UI 更新，提升用户体验）
+        var userMsg = new ChatMessage
+        {
+            Content = userMessage,
+            IsUser = true,
+            Timestamp = DateTime.UtcNow,
+            MessageType = "text"
+        };
+        _currentSession.Messages.Add(userMsg);
+        StateHasChanged();
+
+        try
+        {
+            // 发送消息到 API，后端返回完整列表（用户消息 + AI 回复）
+            var responses = await AgentHostClient.SendMessageAsync(_currentSession.Id, userMessage);
+            
+            // ✅ 只添加 AI 的回复（跳过用户消息，因为已经显示了）
+            foreach (var response in responses)
+            {
+                if (!response.IsUser) // 只添加 AI 回复，不重复添加用户消息
+                {
+                    _currentSession.Messages.Add(response);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // 发生错误时，移除乐观添加的用户消息
+            _currentSession.Messages.Remove(userMsg);
+            
+            // 添加错误消息
+            _currentSession.Messages.Add(new ChatMessage
+            {
+                AgentId = "system",
+                AgentName = "System",
+                AgentAvatar = "⚠️",
+                Content = $"Error: {ex.Message}. Please try again.",
+                IsUser = false,
+                MessageType = "error",
+                Timestamp = DateTime.UtcNow
+            });
+            
+            Console.WriteLine($"Error sending message: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    /// <summary>
+    /// 删除会话（带确认对话框）
+    /// </summary>
+    private async Task DeleteSessionWithConfirmation(string sessionId)
+    {
+        var session = _sessions.FirstOrDefault(s => s.Id == sessionId);
+        if (session == null) return;
+
+        var parameters = new DialogParameters
+        {
+            ["ContentText"] = $"确定要删除会话 \"{session.Name}\" 吗？此操作将同时删除该会话的所有消息，且不可恢复。",
+            ["ButtonText"] = "删除",
+            ["Color"] = Color.Error
+        };
+
+        var options = new DialogOptions 
+        { 
+            CloseButton = true, 
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true 
+        };
+
+        var dialog = await DialogService.ShowMessageBox(
+            "确认删除", 
+            $"确定要删除会话 \"{session.Name}\" 吗？此操作将同时删除该会话的所有消息，且不可恢复。",
+            yesText: "删除",
+            cancelText: "取消");
+
+        if (dialog == true)
+        {
+            await DeleteSession(sessionId);
+        }
+    }
+
+    /// <summary>
+    /// 删除会话的核心逻辑
+    /// </summary>
+    private async Task DeleteSession(string sessionId)
+    {
+        try
+        {
+            // 调用 API 删除会话（后端会级联删除消息）
+            var success = await AgentHostClient.DeleteSessionAsync(sessionId);
+            
+            if (success)
+            {
+                // 从列表中移除
+                var deletedSession = _sessions.FirstOrDefault(s => s.Id == sessionId);
+                if (deletedSession != null)
+                {
+                    _sessions.Remove(deletedSession);
+                }
+
+                // 如果删除的是当前会话，需要切换到其他会话
+                if (_currentSession?.Id == sessionId)
+                {
+                    if (_sessions.Count > 0)
+                    {
+                        // 切换到第一个会话
+                        await LoadSession(_sessions.First().Id);
+                    }
+                    else
+                    {
+                        // 没有会话了，创建一个新会话
+                        await CreateNewSessionAsync();
+                    }
+                }
+
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting session: {ex.Message}");
+            // 可以添加错误提示
+        }
+    }
+}

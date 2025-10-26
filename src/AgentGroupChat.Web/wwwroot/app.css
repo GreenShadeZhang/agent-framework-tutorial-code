@@ -1,0 +1,132 @@
+/* Custom styles for Agent Group Chat with MudBlazor */
+
+/* Global styles - minimal customization to let MudBlazor theme handle most styling */
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #F9FAFB;
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Ensure #app fills the viewport */
+#app {
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+}
+
+/* Sidebar customization */
+.sidebar-panel .mud-list-item {
+    border-radius: 8px;
+    margin: 4px 8px;
+    transition: all 0.2s ease;
+}
+
+.sidebar-panel .mud-list-item:hover {
+    background-color: rgba(139, 92, 246, 0.08) !important;
+}
+
+/* Custom scrollbar for better appearance */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(139, 92, 246, 0.3);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(139, 92, 246, 0.5);
+}
+
+/* Message container smooth scroll */
+.overflow-auto {
+    scroll-behavior: smooth;
+}
+
+/* Animation for messages */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.mb-4 {
+    animation: fadeInUp 0.3s ease-out;
+}
+
+/* Error UI styling */
+#blazor-error-ui {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    max-width: 400px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
+/* Rounded corners for images */
+.rounded {
+    border-radius: 8px;
+}
+
+/* Ensure proper gap spacing */
+.gap-2 {
+    gap: 8px;
+}
+
+.gap-3 {
+    gap: 12px;
+}
+
+/* Custom styles for better visual hierarchy */
+.mud-chip {
+    font-weight: 500;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+    .sidebar-panel {
+        width: 280px !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .sidebar-panel {
+        width: 240px !important;
+    }
+    
+    .mud-container {
+        flex-direction: column !important;
+    }
+    
+    .sidebar-panel {
+        width: 100% !important;
+        max-height: 200px;
+        border-right: none !important;
+        border-bottom: 1px solid var(--mud-palette-divider) !important;
+    }
+}
+
+@media (max-width: 640px) {
+    .pa-4 {
+        padding: 12px !important;
+    }
+    
+    .mud-text.mud-text-h5 {
+        font-size: 1.25rem !important;
+    }
+}

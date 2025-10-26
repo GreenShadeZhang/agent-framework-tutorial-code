@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="AgentGroupChat.AgentHost/AgentGroupChat.AgentHost.csproj" />
+  <Project Path="AgentGroupChat.AppHost/AgentGroupChat.AppHost.csproj" />
+  <Project Path="AgentGroupChat.ServiceDefaults/AgentGroupChat.ServiceDefaults.csproj" />
+  <Project Path="AgentGroupChat.Web/AgentGroupChat.Web.csproj" />
+</Solution>
