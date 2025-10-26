@@ -1,0 +1,284 @@
+@page "/admin"
+@using AgentGroupChat.Models
+@using AgentGroupChat.Web.Services
+@inject AgentHostClient AgentHostClient
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>Agent Management - Admin</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" Class="mb-4">
+        <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" />
+        Agent Management
+    </MudText>
+    
+    <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-6">
+        <MudTabPanel Text="Agents" Icon="@Icons.Material.Filled.SmartToy">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="OpenCreateAgentDialog"
+                               Class="mb-4">
+                        Create New Agent
+                    </MudButton>
+                    
+                    <MudButton Variant="Variant.Outlined" 
+                               Color="Color.Success" 
+                               StartIcon="@Icons.Material.Filled.CloudDownload"
+                               OnClick="InitializeDefaultData"
+                               Class="mb-4 ml-2">
+                        Initialize Default Data
+                    </MudButton>
+                </MudItem>
+                
+                <MudItem xs="12">
+                    @if (_loading)
+                    {
+                        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+                    }
+                    else if (_agents != null && _agents.Any())
+                    {
+                        <MudTable Items="@_agents" Hover="true" Striped="true">
+                            <HeaderContent>
+                                <MudTh>Avatar</MudTh>
+                                <MudTh>Name</MudTh>
+                                <MudTh>ID</MudTh>
+                                <MudTh>Description</MudTh>
+                                <MudTh>Enabled</MudTh>
+                                <MudTh>Actions</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Avatar">
+                                    <MudText Typo="Typo.h5">@context.Avatar</MudText>
+                                </MudTd>
+                                <MudTd DataLabel="Name">@context.Name</MudTd>
+                                <MudTd DataLabel="ID"><MudChip T="string" Size="Size.Small">@context.Id</MudChip></MudTd>
+                                <MudTd DataLabel="Description">@context.Description</MudTd>
+                                <MudTd DataLabel="Enabled">
+                                    <MudSwitch @bind-Value="@context.Enabled" 
+                                               Color="Color.Success" 
+                                               Disabled="true" />
+                                </MudTd>
+                                <MudTd DataLabel="Actions">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" 
+                                                   Color="Color.Primary" 
+                                                   Size="Size.Small"
+                                                   OnClick="() => OpenEditAgentDialog(context)" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                                   Color="Color.Error" 
+                                                   Size="Size.Small"
+                                                   OnClick="() => DeleteAgent(context.Id)" />
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Info">
+                            No agents found. Click "Initialize Default Data" to add default agents, or create a new agent.
+                        </MudAlert>
+                    }
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
+        
+        <MudTabPanel Text="Groups" Icon="@Icons.Material.Filled.Groups">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudButton Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="OpenCreateGroupDialog"
+                               Class="mb-4">
+                        Create New Group
+                    </MudButton>
+                </MudItem>
+                
+                <MudItem xs="12">
+                    @if (_loadingGroups)
+                    {
+                        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+                    }
+                    else if (_groups != null && _groups.Any())
+                    {
+                        <MudTable Items="@_groups" Hover="true" Striped="true">
+                            <HeaderContent>
+                                <MudTh>ID</MudTh>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Description</MudTh>
+                                <MudTh>Agents</MudTh>
+                                <MudTh>Enabled</MudTh>
+                                <MudTh>Actions</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="ID"><MudChip T="string" Size="Size.Small">@context.Id</MudChip></MudTd>
+                                <MudTd DataLabel="Name">@context.Name</MudTd>
+                                <MudTd DataLabel="Description">@context.Description</MudTd>
+                                <MudTd DataLabel="Agents">
+                                    @foreach (var agentId in context.AgentIds)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">@agentId</MudChip>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Enabled">
+                                    <MudSwitch @bind-Value="@context.Enabled" 
+                                               Color="Color.Success" 
+                                               Disabled="true" />
+                                </MudTd>
+                                <MudTd DataLabel="Actions">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" 
+                                                   Color="Color.Primary" 
+                                                   Size="Size.Small"
+                                                   OnClick="() => OpenEditGroupDialog(context)" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                                   Color="Color.Error" 
+                                                   Size="Size.Small"
+                                                   OnClick="() => DeleteGroup(context.Id)" />
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Info">
+                            No groups found. Click "Initialize Default Data" to add the default group, or create a new group.
+                        </MudAlert>
+                    }
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
+    </MudTabs>
+</MudContainer>
+
+@code {
+    private List<PersistedAgentProfile>? _agents;
+    private List<AgentGroup>? _groups;
+    private bool _loading = true;
+    private bool _loadingGroups = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAgentsAsync();
+        await LoadGroupsAsync();
+    }
+
+    private async Task LoadAgentsAsync()
+    {
+        _loading = true;
+        try
+        {
+            _agents = await AgentHostClient.GetAllAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading agents: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadGroupsAsync()
+    {
+        _loadingGroups = true;
+        try
+        {
+            _groups = await AgentHostClient.GetAllGroupsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading groups: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loadingGroups = false;
+        }
+    }
+
+    private async Task InitializeDefaultData()
+    {
+        try
+        {
+            await AgentHostClient.InitializeDefaultDataAsync();
+            Snackbar.Add("Default data initialized successfully", Severity.Success);
+            await LoadAgentsAsync();
+            await LoadGroupsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error initializing data: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void OpenCreateAgentDialog()
+    {
+        // TODO: Implement dialog for creating agent
+        Snackbar.Add("Create agent dialog - Coming soon", Severity.Info);
+    }
+
+    private void OpenEditAgentDialog(PersistedAgentProfile agent)
+    {
+        // TODO: Implement dialog for editing agent
+        Snackbar.Add($"Edit agent {agent.Name} - Coming soon", Severity.Info);
+    }
+
+    private async Task DeleteAgent(string agentId)
+    {
+        bool? confirmed = await DialogService.ShowMessageBox(
+            "Confirm Delete",
+            $"Are you sure you want to delete agent '{agentId}'?",
+            yesText:"Delete", cancelText:"Cancel");
+        
+        if (confirmed == true)
+        {
+            try
+            {
+                await AgentHostClient.DeleteAgentAsync(agentId);
+                Snackbar.Add("Agent deleted successfully", Severity.Success);
+                await LoadAgentsAsync();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error deleting agent: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private void OpenCreateGroupDialog()
+    {
+        // TODO: Implement dialog for creating group
+        Snackbar.Add("Create group dialog - Coming soon", Severity.Info);
+    }
+
+    private void OpenEditGroupDialog(AgentGroup group)
+    {
+        // TODO: Implement dialog for editing group
+        Snackbar.Add($"Edit group {group.Name} - Coming soon", Severity.Info);
+    }
+
+    private async Task DeleteGroup(string groupId)
+    {
+        bool? confirmed = await DialogService.ShowMessageBox(
+            "Confirm Delete",
+            $"Are you sure you want to delete group '{groupId}'?",
+            yesText:"Delete", cancelText:"Cancel");
+        
+        if (confirmed == true)
+        {
+            try
+            {
+                await AgentHostClient.DeleteGroupAsync(groupId);
+                Snackbar.Add("Group deleted successfully", Severity.Success);
+                await LoadGroupsAsync();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error deleting group: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+}
