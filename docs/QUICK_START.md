@@ -76,7 +76,7 @@ dotnet run
 - See all configured agents with their properties
 
 ### Create/Edit Agent
-Currently via API. Example:
+Currently via API. Example (replace port with your actual backend port from terminal output):
 
 ```bash
 curl -X POST http://localhost:5000/api/admin/agents \
@@ -91,6 +91,8 @@ curl -X POST http://localhost:5000/api/admin/agents \
     "enabled": true
   }'
 ```
+
+> **Note**: If using .NET Aspire, check the Aspire dashboard or terminal output for the actual backend URL and port.
 
 ### Delete Agent
 - Click the delete icon (🗑️) next to an agent
@@ -217,4 +219,4 @@ To reset all data, stop the application and delete this file.
 5. Customize triage agent prompts
 6. Explore advanced features in documentation
 
-For detailed implementation information, see [DYNAMIC_AGENT_LOADING.md](../docs/DYNAMIC_AGENT_LOADING.md)
+For detailed implementation information, see [DYNAMIC_AGENT_LOADING.md](./DYNAMIC_AGENT_LOADING.md)
