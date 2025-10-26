@@ -1,6 +1,7 @@
 using AgentGroupChat.Models;
 using Azure.AI.OpenAI;
 using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 using OpenAI;
 using System.ClientModel;
@@ -10,10 +11,10 @@ using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 namespace AgentGroupChat.AgentHost.Services;
 
 /// <summary>
-/// Service for managing multi-agent chat with persistence support (重构版)
-/// 使用 AIAgent 和 AgentThread 实现官方推荐的持久化机制
-/// 集成 LiteDbChatMessageStore，消息和 Thread 状态分离存储
-/// 参考 Agent Framework Step06 和 Step07 的最佳实践
+/// Service for managing multi-agent chat with TRUE handoff workflow support
+/// 使用 AgentWorkflowBuilder 实现真正的 Handoff 模式（参考官方示例）
+/// 集成 LiteDbChatMessageStore 进行消息持久化
+/// 参考：https://github.com/microsoft/agent-framework/blob/main/dotnet/samples/GettingStarted/Workflows/_Foundational/04_AgentWorkflowPatterns/Program.cs
 /// </summary>
 public class AgentChatService
 {
@@ -26,7 +27,7 @@ public class AgentChatService
     private readonly ILogger<LiteDbChatMessageStore>? _storeLogger;
 
     public AgentChatService(
-        IConfiguration configuration, 
+        IConfiguration configuration,
         PersistedSessionService sessionService,
         McpToolService mcpToolService,
         ILogger<AgentChatService>? logger = null,
@@ -129,7 +130,7 @@ public class AgentChatService
                 Description = "The food enthusiast who loves to eat and cook"
             }
         };
-        
+
         _logger?.LogInformation("AgentChatService initialized with {Count} agent profiles", _agentProfiles.Count);
     }
 
@@ -142,97 +143,72 @@ public class AgentChatService
     }
 
     /// <summary>
-    /// 为指定会话和 Agent 创建 AIAgent（带 ChatMessageStoreFactory）
-    /// 这是核心改进：每个会话的 Thread 都有独立的 LiteDbChatMessageStore
-    /// 现在集成了 MCP 工具，使所有 Agent 都可以使用 MCP 服务器提供的工具
+    /// 创建真正的 Handoff Workflow（官方推荐方式）
+    /// 使用 AgentWorkflowBuilder 构建 triage agent 和多个 specialist agents
+    /// 实现智能路由和 agent 切换
     /// </summary>
-    private AIAgent CreateAgentForSession(string sessionId, AgentProfile? profile = null)
+    private Workflow CreateHandoffWorkflow(string sessionId)
     {
-        var instructions = profile?.SystemPrompt ?? 
-            "You are a helpful AI assistant that manages a group chat with multiple agents. " +
-            "When users mention @AgentName, you help route the conversation. " +
-            "Available agents: @Sunny (cheerful), @Techie (tech-savvy), @Artsy (artistic), @Foodie (food-loving). " +
-            "If no specific agent is mentioned, respond naturally yourself or suggest an appropriate agent. " +
-            "Keep responses concise and friendly.";
-        
-        var name = profile?.Name ?? "Assistant";
-
         // 获取所有可用的 MCP 工具
         var mcpTools = _mcpToolService.GetAllTools().ToList();
-        
-        if (mcpTools.Any())
-        {
-            _logger?.LogDebug("Adding {ToolCount} MCP tools to agent '{AgentName}'", mcpTools.Count, name);
-        }
 
-        // 创建 Agent，使用 instructions 和 tools 参数
-        // ChatMessageStore 将在 GetOrCreateThread 中配置
-        var agent = _chatClient.CreateAIAgent(
-            instructions: instructions, 
-            name: name,
-            tools: [.. mcpTools]);
-        
-        _logger?.LogDebug("Created AIAgent '{AgentName}' for session {SessionId} with {ToolCount} MCP tools", 
-            name, sessionId, mcpTools.Count);
-        return agent;
+        _logger?.LogDebug("Creating handoff workflow for session {SessionId} with {ToolCount} MCP tools",
+            sessionId, mcpTools.Count);
+
+        // 1️⃣ 动态生成 Triage Agent 的指令（基于实际的 agent profiles）
+        var specialistDescriptions = string.Join("\n", _agentProfiles.Select(profile =>
+            $"- {profile.Id}: {profile.Description} (Personality: {profile.Personality})"
+        ));
+
+        var triageInstructions =
+            "You are a smart routing agent that analyzes user messages and decides which specialist agent should respond. " +
+            "IMPORTANT: You MUST ALWAYS use the handoff function to delegate to one of the specialist agents. NEVER respond directly. " +
+            "\n\nAvailable specialist agents:\n" +
+            specialistDescriptions +
+            "\n\nAnalyze the user's message and handoff to the most appropriate specialist. " +
+            "Consider the topic, keywords, tone, and context when making your decision. " +
+            "Choose the specialist whose personality and expertise best match the user's needs.";
+
+        // 创建 Triage Agent（智能路由器）
+        var triageAgent = new ChatClientAgent(
+            _chatClient,
+            instructions: triageInstructions,
+            name: "triage",
+            description: "Smart router that delegates to specialist agents");
+
+        _logger?.LogDebug("Triage agent instructions: {Instructions}", triageInstructions);
+
+        // 2️⃣ 创建所有 Specialist Agents
+        var specialistAgents = _agentProfiles.Select(profile =>
+            new ChatClientAgent(
+                _chatClient,
+                instructions: profile.SystemPrompt +
+                    "\n\nIMPORTANT: If the user asks about something outside your expertise, " +
+                    "you can suggest they ask another agent, but still provide a helpful response.",
+                name: profile.Id,
+                description: profile.Description)
+        ).ToList();
+
+        _logger?.LogInformation("Created {SpecialistCount} specialist agents: {AgentNames}",
+            specialistAgents.Count,
+            string.Join(", ", specialistAgents.Select(a => a.Name)));
+
+        // 3️⃣ 使用 AgentWorkflowBuilder 构建 Handoff Workflow
+        var builder = AgentWorkflowBuilder.CreateHandoffBuilderWith(triageAgent);
+
+        // 配置 handoff 路径：triage → specialists
+        builder.WithHandoffs(triageAgent, specialistAgents).WithHandoffs(specialistAgents, triageAgent);
+
+        var workflow = builder.Build();
+
+        _logger?.LogInformation("Handoff workflow created successfully for session {SessionId}", sessionId);
+
+        return workflow;
     }
 
     /// <summary>
-    /// 获取或创建 AgentThread（自动加载历史或创建新 Thread，并配置 ChatMessageStore）
-    /// </summary>
-    private AgentThread GetOrCreateThread(string sessionId, AIAgent agent, AgentProfile? profile = null)
-    {
-        // 尝试从数据库加载
-        var thread = _sessionService.LoadThread(sessionId, agent);
-        if (thread != null)
-        {
-            _logger?.LogDebug("Loaded existing thread for session {SessionId}", sessionId);
-            
-            // 为加载的 Thread 也配置 ChatMessageStore
-            ConfigureThreadStore(thread, sessionId, profile);
-            return thread;
-        }
-
-        // 创建新 Thread
-        var newThread = agent.GetNewThread();
-        
-        // 配置 ChatMessageStore
-        ConfigureThreadStore(newThread, sessionId, profile);
-        
-        _logger?.LogDebug("Created new thread with LiteDbChatMessageStore for session {SessionId}", sessionId);
-        return newThread;
-    }
-
-    /// <summary>
-    /// 为 Thread 配置 ChatMessageStore
-    /// </summary>
-    private void ConfigureThreadStore(AgentThread thread, string sessionId, AgentProfile? profile)
-    {
-        var agentId = profile?.Id ?? "assistant";
-        var agentName = profile?.Name ?? "Assistant";
-        var agentAvatar = profile?.Avatar ?? "🤖";
-        
-        var messagesCollection = _sessionService.GetMessagesCollection();
-        var chatMessageStore = new LiteDbChatMessageStore(
-            messagesCollection,
-            sessionId,
-            agentId,
-            agentName,
-            agentAvatar,
-            _storeLogger);
-        
-        // 尝试设置 Store（需要检查 Thread 是否有公开的 Store 属性）
-        // thread.ChatMessageStore = chatMessageStore; // 如果 API 支持
-        
-        // 如果 API 不支持直接设置，我们需要在创建 Agent 时通过其他方式配置
-        // 这是一个限制，我们将使用替代方案
-        
-        _logger?.LogDebug("Configured ChatMessageStore for thread in session {SessionId}, Agent: {AgentName}", 
-            sessionId, agentName);
-    }
-
-    /// <summary>
-    /// 发送消息并使用 AgentThread 管理对话（重构版）
+    /// 发送消息并使用 Handoff Workflow 进行智能路由（重构版）
+    /// 使用官方推荐的 AgentWorkflowBuilder + StreamingRun + WorkflowEvent 处理
     /// </summary>
     public async Task<List<ChatMessageSummary>> SendMessageAsync(string message, string sessionId)
     {
@@ -242,21 +218,7 @@ public class AgentChatService
         {
             _logger?.LogDebug("Processing message for session {SessionId}: {Message}", sessionId, message);
 
-            // 1. 检测提到的 Agent
-            var mentionedAgent = DetectMentionedAgent(message);
-            string agentId = mentionedAgent?.Id ?? "triage";
-            string agentName = mentionedAgent?.Name ?? "Assistant";
-            string agentAvatar = mentionedAgent?.Avatar ?? "🤖";
-
-            // 2. 为当前会话创建 AIAgent（带 ChatMessageStoreFactory）
-            var agent = CreateAgentForSession(sessionId, mentionedAgent);
-
-
-
-            // 3. 获取或创建 AgentThread（并配置 ChatMessageStore）
-            var thread = GetOrCreateThread(sessionId, agent, mentionedAgent);
-
-            // 4. 添加用户消息摘要
+            // 1️⃣ 添加用户消息摘要
             summaries.Add(new ChatMessageSummary
             {
                 Content = message,
@@ -265,96 +227,162 @@ public class AgentChatService
                 MessageType = "text"
             });
 
-            // 5. 运行对话（消息通过 Agent Framework 处理）
-            var agentResponse = await agent.RunAsync(message, thread);
-            string response = agentResponse.Text ?? agentResponse.ToString();
+            // 2️⃣ 创建 Handoff Workflow
+            var workflow = CreateHandoffWorkflow(sessionId);
 
-            _logger?.LogDebug("Agent {AgentId} responded: {Response}", agentId, response);
+            // 3️⃣ 准备消息列表（包含历史消息）
+            var messages = new List<AIChatMessage>();
 
-            // ✅ 手动保存消息到 LiteDbChatMessageStore（确保持久化）
-            try
+            // 从数据库加载历史消息
+            var history = _sessionService.GetMessageSummaries(sessionId);
+            foreach (var historyMsg in history)
             {
-                var messageStore = new LiteDbChatMessageStore(
-                    _sessionService.GetMessagesCollection(),
-                    sessionId,
-                    agentId,
-                    agentName,
-                    agentAvatar,
-                    _storeLogger);
-                
-                // 创建用户消息和 AI 回复消息
-                var userMessage = new AIChatMessage(ChatRole.User, message)
+                if (historyMsg.IsUser)
                 {
-                    MessageId = Guid.NewGuid().ToString()
-                };
-                
-                var assistantMessage = new AIChatMessage(ChatRole.Assistant, response)
+                    messages.Add(new AIChatMessage(ChatRole.User, historyMsg.Content));
+                }
+                else
                 {
-                    MessageId = Guid.NewGuid().ToString()
-                };
-                
-                // 保存消息
-                await messageStore.AddMessagesAsync(new List<AIChatMessage> { userMessage, assistantMessage });
-                
-                _logger?.LogInformation("Saved 2 messages to LiteDB for session {SessionId} (Agent: {AgentName})", 
-                    sessionId, agentName);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Error saving messages for session {SessionId}", sessionId);
-                // 继续执行，不影响主流程
+                    messages.Add(new AIChatMessage(ChatRole.Assistant, historyMsg.Content));
+                }
             }
 
-            // 6. 添加 Agent 响应摘要
-            summaries.Add(new ChatMessageSummary
-            {
-                AgentId = agentId,
-                AgentName = agentName,
-                AgentAvatar = agentAvatar,
-                Content = response,
-                IsUser = false,
-                Timestamp = DateTime.UtcNow,
-                MessageType = "text"
-            });
+            // 添加当前用户消息
+            messages.Add(new AIChatMessage(ChatRole.User, message));
 
-            // 7. 检查是否需要生成图片
-            if (ShouldGenerateImage(response))
+            // 4️⃣ 运行 Workflow（使用 StreamingRun）
+            await using StreamingRun run = await InProcessExecution.StreamAsync(workflow, messages);
+            await run.TrySendMessageAsync(new TurnToken(emitEvents: true));
+
+            // 5️⃣ 处理 WorkflowEvent 流，追踪不同 agent 的执行
+            string? currentExecutorId = null;
+            ChatMessageSummary? currentSummary = null;
+
+            await foreach (WorkflowEvent evt in run.WatchStreamAsync())
+            {
+                if (evt is AgentRunUpdateEvent agentUpdate)
+                {
+                    // 检测到新的 agent 执行
+                    if (agentUpdate.ExecutorId != currentExecutorId)
+                    {
+                        currentExecutorId = agentUpdate.ExecutorId;
+
+                        // 获取 agent 的 profile 信息
+                        var profile = GetAgentProfile(currentExecutorId);
+
+                        _logger?.LogDebug("Agent switched to: {ExecutorId} ({AgentName})",
+                            currentExecutorId, profile?.Name ?? currentExecutorId);
+
+                        // 创建新的消息摘要（跳过 triage agent 的输出，它不应该有输出）
+                        if (currentExecutorId != "triage")
+                        {
+                            currentSummary = new ChatMessageSummary
+                            {
+                                AgentId = currentExecutorId,
+                                AgentName = profile?.Name ?? currentExecutorId,
+                                AgentAvatar = profile?.Avatar ?? "🤖",
+                                Content = "",
+                                IsUser = false,
+                                Timestamp = DateTime.UtcNow,
+                                MessageType = "text"
+                            };
+                            summaries.Add(currentSummary);
+                        }
+                    }
+
+                    // 追加文本内容（仅当不是 triage agent 时）
+                    if (currentExecutorId != "triage" && currentSummary != null)
+                    {
+                        currentSummary.Content += agentUpdate.Update.Text;
+                    }
+
+                    // 检测函数调用（例如 handoff）
+                    if (agentUpdate.Update.Contents.OfType<FunctionCallContent>().FirstOrDefault() is FunctionCallContent call)
+                    {
+                        _logger?.LogDebug("Agent {ExecutorId} calling function: {FunctionName} with args: {Args}",
+                            currentExecutorId, call.Name, JsonSerializer.Serialize(call.Arguments));
+                    }
+                }
+                else if (evt is WorkflowOutputEvent output)
+                {
+                    _logger?.LogDebug("Workflow completed for session {SessionId}", sessionId);
+                    break;
+                }
+            }
+
+            // 6️⃣ 检查是否需要生成图片（基于最后一个 agent 的响应）
+            if (currentSummary != null && ShouldGenerateImage(currentSummary.Content))
             {
                 try
                 {
-                    var imageUrl = await _imageTool.GenerateImage($"{mentionedAgent?.Personality ?? "casual"} scene");
+                    var profile = GetAgentProfile(currentExecutorId!);
+                    var imageUrl = await _imageTool.GenerateImage($"{profile?.Personality ?? "casual"} scene");
+
                     summaries.Add(new ChatMessageSummary
                     {
-                        AgentId = agentId,
-                        AgentName = agentName,
-                        AgentAvatar = agentAvatar,
+                        AgentId = currentExecutorId!,
+                        AgentName = currentSummary.AgentName,
+                        AgentAvatar = currentSummary.AgentAvatar,
                         Content = "Here's a photo I'd like to share! 📸",
                         ImageUrl = imageUrl,
                         IsUser = false,
                         Timestamp = DateTime.UtcNow,
                         MessageType = "image"
                     });
-                    
-                    _logger?.LogDebug("Generated image for agent {AgentId}", agentId);
+
+                    _logger?.LogDebug("Generated image for agent {AgentId}", currentExecutorId);
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogWarning(ex, "Failed to generate image for agent {AgentId}", agentId);
+                    _logger?.LogWarning(ex, "Failed to generate image for agent {AgentId}", currentExecutorId);
                 }
             }
 
-            // 8. 保存 Thread 到数据库（关键步骤！）
-            // 注意：消息已经通过 ChatMessageStore 自动保存，这里只保存 Thread 元数据
-            _sessionService.SaveThread(sessionId, thread);
-            
-            _logger?.LogInformation("Saved thread for session {SessionId}", sessionId);
+            // 7️⃣ 手动保存所有消息到 LiteDB
+            try
+            {
+                var messagesToSave = new List<AIChatMessage>();
+
+                // 用户消息
+                messagesToSave.Add(new AIChatMessage(ChatRole.User, message)
+                {
+                    MessageId = Guid.NewGuid().ToString()
+                });
+
+                // Agent 响应消息
+                foreach (var summary in summaries.Where(s => !s.IsUser && s.MessageType == "text"))
+                {
+                    messagesToSave.Add(new AIChatMessage(ChatRole.Assistant, summary.Content)
+                    {
+                        MessageId = Guid.NewGuid().ToString()
+                    });
+                }
+
+                // 保存到 LiteDB
+                var messageStore = new LiteDbChatMessageStore(
+                    _sessionService.GetMessagesCollection(),
+                    sessionId,
+                    currentExecutorId ?? "assistant",
+                    currentSummary?.AgentName ?? "Assistant",
+                    currentSummary?.AgentAvatar ?? "🤖",
+                    _storeLogger);
+
+                await messageStore.AddMessagesAsync(messagesToSave);
+
+                _logger?.LogInformation("Saved {Count} messages to LiteDB for session {SessionId}",
+                    messagesToSave.Count, sessionId);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error saving messages for session {SessionId}", sessionId);
+            }
 
             return summaries;
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Error processing message for session {SessionId}", sessionId);
-            
+
             summaries.Add(new ChatMessageSummary
             {
                 AgentId = "system",
@@ -365,25 +393,9 @@ public class AgentChatService
                 MessageType = "error",
                 Timestamp = DateTime.UtcNow
             });
-            
+
             return summaries;
         }
-    }
-
-    /// <summary>
-    /// 检测消息中提到的 Agent
-    /// </summary>
-    private AgentProfile? DetectMentionedAgent(string message)
-    {
-        foreach (var profile in _agentProfiles)
-        {
-            if (message.Contains($"@{profile.Name}", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains($"@{profile.Id}", StringComparison.OrdinalIgnoreCase))
-            {
-                return profile;
-            }
-        }
-        return null;
     }
 
     /// <summary>
