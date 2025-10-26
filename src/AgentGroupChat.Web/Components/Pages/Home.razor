@@ -183,7 +183,8 @@
         }
         else
         {
-            _currentSession = _sessions.First();
+            // 加载第一个会话及其历史消息
+            await LoadSession(_sessions.First().Id);
         }
     }
 
@@ -206,7 +207,16 @@
 
     private async Task LoadSession(string sessionId)
     {
+        // 加载会话基本信息
         _currentSession = await AgentHostClient.GetSessionAsync(sessionId);
+        
+        // 加载会话的历史消息
+        if (_currentSession != null)
+        {
+            var history = await AgentHostClient.GetConversationHistoryAsync(sessionId);
+            _currentSession.Messages = history;
+        }
+        
         StateHasChanged();
     }
 
@@ -219,29 +229,48 @@
         var userMessage = _inputMessage;
         _inputMessage = string.Empty;
 
-        // Add user message to UI immediately
+        // ✅ 立即显示用户消息（乐观 UI 更新，提升用户体验）
         var userMsg = new ChatMessage
         {
             Content = userMessage,
-            IsUser = true
+            IsUser = true,
+            Timestamp = DateTime.UtcNow,
+            MessageType = "text"
         };
         _currentSession.Messages.Add(userMsg);
         StateHasChanged();
 
         try
         {
-            // Send message to API and get agent responses
+            // 发送消息到 API，后端返回完整列表（用户消息 + AI 回复）
             var responses = await AgentHostClient.SendMessageAsync(_currentSession.Id, userMessage);
             
-            // Add agent responses to UI
+            // ✅ 只添加 AI 的回复（跳过用户消息，因为已经显示了）
             foreach (var response in responses)
             {
-                _currentSession.Messages.Add(response);
+                if (!response.IsUser) // 只添加 AI 回复，不重复添加用户消息
+                {
+                    _currentSession.Messages.Add(response);
+                }
             }
         }
         catch (Exception ex)
         {
-            // Error message already added by AgentHostClient
+            // 发生错误时，移除乐观添加的用户消息
+            _currentSession.Messages.Remove(userMsg);
+            
+            // 添加错误消息
+            _currentSession.Messages.Add(new ChatMessage
+            {
+                AgentId = "system",
+                AgentName = "System",
+                AgentAvatar = "⚠️",
+                Content = $"Error: {ex.Message}. Please try again.",
+                IsUser = false,
+                MessageType = "error",
+                Timestamp = DateTime.UtcNow
+            });
+            
             Console.WriteLine($"Error sending message: {ex.Message}");
         }
         finally

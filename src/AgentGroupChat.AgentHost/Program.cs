@@ -46,7 +46,21 @@ app.MapGet("/api/agents", (AgentChatService agentService) =>
 // Get all sessions
 app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
 {
-    return Results.Ok(sessionService.GetAllSessions());
+    var sessions = sessionService.GetAllSessions();
+    
+    // 映射到前端模型（不包含消息详情，只有元数据）
+    var result = sessions.Select(s => new
+    {
+        s.Id,
+        s.Name,
+        s.CreatedAt,
+        s.LastUpdated,
+        s.MessageCount,
+        s.IsActive,
+        Messages = new List<object>() // 空消息列表，前端会通过 /messages 端点加载
+    }).ToList();
+    
+    return Results.Ok(result);
 })
 .WithName("GetSessions")
 .WithOpenApi();
@@ -55,7 +69,20 @@ app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
 app.MapPost("/api/sessions", (PersistedSessionService sessionService) =>
 {
     var session = sessionService.CreateSession();
-    return Results.Ok(session);
+    
+    // 映射到前端模型
+    var result = new
+    {
+        session.Id,
+        session.Name,
+        session.CreatedAt,
+        session.LastUpdated,
+        session.MessageCount,
+        session.IsActive,
+        Messages = new List<object>() // 新会话没有消息
+    };
+    
+    return Results.Ok(result);
 })
 .WithName("CreateSession")
 .WithOpenApi();
@@ -66,7 +93,20 @@ app.MapGet("/api/sessions/{id}", (string id, PersistedSessionService sessionServ
     var session = sessionService.GetSession(id);
     if (session == null)
         return Results.NotFound();
-    return Results.Ok(session);
+    
+    // 映射到前端模型（不包含消息详情，前端会通过 /messages 端点加载）
+    var result = new
+    {
+        session.Id,
+        session.Name,
+        session.CreatedAt,
+        session.LastUpdated,
+        session.MessageCount,
+        session.IsActive,
+        Messages = new List<object>() // 空消息列表
+    };
+    
+    return Results.Ok(result);
 })
 .WithName("GetSession")
 .WithOpenApi();
