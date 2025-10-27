@@ -33,7 +33,7 @@
 
 ### 技术栈
 
-- **前端**: Blazor Server + MudBlazor
+- **前端**: Blazor WebAssembly + MudBlazor
 - **AI 框架**: Microsoft Agent Framework
 - **数据库**: LiteDB (轻量级文档数据库)
 - **AI 服务**: 
