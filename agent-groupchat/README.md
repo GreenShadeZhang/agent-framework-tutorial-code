@@ -29,28 +29,31 @@
 ## 项目结构
 
 ```
-src/
-├── AgentGroupChat/                    # 主应用项目
-│   ├── Components/                    # Blazor 组件
+agent-groupchat/
+├── AgentGroupChat.Web/               # 主应用项目
+│   ├── Components/                   # Blazor 组件
 │   │   ├── Pages/
-│   │   │   └── Home.razor            # 主聊天界面
-│   │   ├── Layout/                   # 布局组件
-│   │   └── _Imports.razor            # 全局引用
-│   ├── Models/                       # 数据模型
-│   │   ├── AgentProfile.cs           # 智能体配置
-│   │   ├── ChatMessage.cs            # 聊天消息
-│   │   └── ChatSession.cs            # 会话
-│   ├── Services/                     # 业务服务
-│   │   ├── AgentChatService.cs       # 智能体聊天服务（核心）
-│   │   ├── ImageGenerationTool.cs    # 图片生成工具
-│   │   └── SessionService.cs         # 会话持久化服务
-│   ├── wwwroot/                      # 静态资源
-│   │   ├── app.css                   # 样式文件
-│   │   └── avatars/                  # 头像资源
-│   ├── Program.cs                    # 应用入口
-│   ├── appsettings.json              # 配置文件
-│   └── AgentGroupChat.csproj         # 项目文件
-└── README.md                          # 本文档
+│   │   │   └── Home.razor           # 主聊天界面
+│   │   ├── Layout/                  # 布局组件
+│   │   └── _Imports.razor           # 全局引用
+│   ├── Models/                      # 数据模型
+│   │   ├── AgentProfile.cs          # 智能体配置
+│   │   ├── ChatMessage.cs           # 聊天消息
+│   │   └── ChatSession.cs           # 会话
+│   ├── Services/                    # 业务服务
+│   │   ├── AgentChatService.cs      # 智能体聊天服务（核心）
+│   │   ├── ImageGenerationTool.cs   # 图片生成工具
+│   │   └── SessionService.cs        # 会话持久化服务
+│   ├── wwwroot/                     # 静态资源
+│   │   ├── app.css                  # 样式文件
+│   │   └── avatars/                 # 头像资源
+│   ├── Program.cs                   # 应用入口
+│   ├── appsettings.json             # 配置文件
+│   └── AgentGroupChat.Web.csproj    # 项目文件
+├── AgentGroupChat.AppHost/          # Aspire AppHost
+├── AgentGroupChat.ServiceDefaults/  # 服务默认配置
+├── AgentGroupChat.slnx              # 解决方案文件
+└── README.md                        # 本文档
 ```
 
 ## 快速开始
@@ -65,8 +68,8 @@ src/
 
 1. **克隆仓库**
    ```bash
-   git clone https://github.com/GreenShadeZhang/agent-framework-tutorial-code-.git
-   cd agent-framework-tutorial-code-/src/AgentGroupChat
+   git clone https://github.com/GreenShadeZhang/agent-framework-tutorial-code.git
+   cd agent-framework-tutorial-code/agent-groupchat
    ```
 
 2. **配置 Azure OpenAI**
