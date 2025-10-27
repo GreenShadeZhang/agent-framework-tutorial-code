@@ -3,8 +3,10 @@
 @using AgentGroupChat.Web.Services
 @using AgentGroupChat.Web.Components.Dialogs
 @using Markdig
+@using Microsoft.JSInterop
 @inject AgentHostClient AgentHostClient
 @inject IDialogService DialogService
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Agent Group Chat</PageTitle>
 
@@ -91,7 +93,7 @@
         </MudPaper>
 
         <!-- Messages Container -->
-        <div class="flex-grow-1 overflow-auto pa-4 messages-container" style="background: linear-gradient(to bottom, #f5f3ff 0%, #ffffff 100%);" @ref="_messagesContainer">
+        <div class="flex-grow-1 overflow-auto pa-4 messages-container" id="chat-messages" style="background: linear-gradient(to bottom, #f5f3ff 0%, #ffffff 100%);" @ref="_messagesContainer">
             @if (_currentSession?.Messages != null)
             {
                 @foreach (var msg in _currentSession.Messages)
@@ -297,6 +299,9 @@
         }
         
         StateHasChanged();
+        
+        // 加载完成后滚动到底部
+        await ScrollToBottom();
     }
 
     private async Task SendMessage()
@@ -318,6 +323,9 @@
         };
         _currentSession.Messages.Add(userMsg);
         StateHasChanged();
+        
+        // 滚动到底部（用户消息）
+        await ScrollToBottom();
 
         try
         {
@@ -332,6 +340,10 @@
                     _currentSession.Messages.Add(response);
                 }
             }
+            
+            // 滚动到底部（AI 回复）
+            StateHasChanged();
+            await ScrollToBottom();
         }
         catch (Exception ex)
         {
@@ -351,6 +363,10 @@
             });
             
             Console.WriteLine($"Error sending message: {ex.Message}");
+            
+            // 即使出错也滚动到底部显示错误消息
+            StateHasChanged();
+            await ScrollToBottom();
         }
         finally
         {
@@ -442,6 +458,23 @@
         {
             Console.WriteLine($"Error deleting session: {ex.Message}");
             // 可以添加错误提示
+        }
+    }
+    
+    /// <summary>
+    /// 滚动消息容器到底部
+    /// </summary>
+    /// <param name="smooth">是否使用平滑滚动动画</param>
+    private async Task ScrollToBottom(bool smooth = true)
+    {
+        try
+        {
+            var functionName = smooth ? "smoothScrollToBottom" : "scrollToBottom";
+            await JSRuntime.InvokeVoidAsync(functionName, "chat-messages");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error scrolling to bottom: {ex.Message}");
         }
     }
 }
