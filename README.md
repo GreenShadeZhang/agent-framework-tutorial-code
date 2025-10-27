@@ -6,14 +6,15 @@
 
 ### [agent-groupchat](./agent-groupchat/) - 多智能体群聊应用
 
-基于 handoff 模式的多智能体协作应用，展示智能体间的消息路由和协作。
+基于 Agent Framework Handoff 模式的多智能体协作应用，展示智能体间的消息路由和协作。
 
 **特性**: 
-- ✅ 四个不同性格的智能体（Sunny、Techie、Artsy、Foodie）
-- ✅ @ 提及功能、图片生成、会话管理
+- ✅ 多个性格各异的 AI 智能体（艾莲、莉子、克洛伊、安妮、苏菲等）
+- ✅ 智能路由、@ 提及功能、会话管理
+- ✅ MCP 图片生成集成（阿里云 DashScope）
 - ✅ LiteDB 持久化存储
 
-**技术栈**: Blazor Server, Azure OpenAI, LiteDB  
+**技术栈**: Blazor Server, Microsoft Agent Framework, OpenAI API, LiteDB, MCP  
 **难度**: ⭐⭐⭐
 
 ---
@@ -73,9 +74,10 @@
 
 - .NET 9.0
 - Microsoft Agent Framework
-- Azure OpenAI
+- OpenAI API（兼容国内服务）/ Azure OpenAI
 - Blazor Server / ASP.NET Core
 - LiteDB
+- Model Context Protocol (MCP)
 
 ## 贡献
 

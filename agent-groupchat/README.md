@@ -1,59 +1,59 @@
-# Agent Group Chat - 基于 Agent Framework 的多智能体群聊应用
+# Agent Group Chat - 多智能体群聊应用
 
-这是一个基于 Microsoft Agent Framework 实现的 handoff 模式多智能体群聊应用。
+基于 Microsoft Agent Framework Handoff 模式的多智能体群聊应用。
 
 ## 功能特性
 
 ### 核心功能
 
 - ✅ **Handoff 模式**: 基于 Microsoft Agent Framework 实现智能体之间的消息路由和切换
-- ✅ **多个性格智能体**: 四个不同性格的智能体，每个都有独特的个性和回复风格
-  - ☀️ **Sunny**: 阳光开朗，充满正能量
-  - 🤖 **Techie**: 技术宅，喜欢分享科技知识
-  - 🎨 **Artsy**: 艺术家，发现生活中的美
-  - 🍜 **Foodie**: 美食家，热爱烹饪和美食
-- ✅ **图片生成工具**: 每个智能体都配备图片生成功能
+- ✅ **多性格智能体**: 六个不同性格和专长的 AI 角色组成"AI世界公馆"
+  - 🧠 **艾莲 (Elena)**: 巴黎研究员，擅长哲学、艺术与思辨分析
+  - 🎮 **莉子 (Rina)**: 东京元气少女，热爱动漫、游戏和可爱事物
+  - 🎨 **克洛伊 (Chloe)**: 未来都市虚拟艺术家，热衷科技美学与设计
+  - �️ **安妮 (Annie)**: 纽约电台主播，善于用轻松方式引导话题
+  - 📸 **苏菲 (Sophie)**: 旅行摄影师，热爱自然、人文与光影
+  - 🤖 **艾娃 (Ava)**: 群组管家（备用），智能调度与路由
+- ✅ **MCP 图片生成**: 集成阿里云 DashScope MCP 文生图服务
+- ✅ **智能路由**: 基于话题和上下文自动选择合适的智能体
 - ✅ **@提及功能**: 用户可以使用 @ 符号特定提及某个智能体
-- ✅ **富文本回复**: 智能体回复包含昵称、头像、文字和图片
-- ✅ **会话管理**: 支持创建新会话和切换历史会话
-- ✅ **持久化存储**: 使用 LiteDB 持久化会话记录
+- ✅ **会话管理**: 支持创建新会话、切换历史会话、删除会话
+- ✅ **持久化存储**: 使用 LiteDB 持久化会话和消息记录
+- ✅ **动态配置**: 支持从数据库动态加载智能体和群组配置
 
 ### 技术栈
 
-- **前端**: Blazor Server
-- **AI 框架**: Microsoft Agent Framework (via NuGet)
+- **前端**: Blazor Server + MudBlazor
+- **AI 框架**: Microsoft Agent Framework
 - **数据库**: LiteDB (轻量级文档数据库)
-- **AI 服务**: Azure OpenAI
-- **认证**: Azure Identity (DefaultAzureCredential)
+- **AI 服务**: 
+  - OpenAI API（支持国内兼容接口，推荐用于国内用户）
+  - Azure OpenAI（微软官方服务）
+- **图片生成**: 阿里云 DashScope MCP 服务
 
 ## 项目结构
 
 ```
 agent-groupchat/
-├── AgentGroupChat.Web/               # 主应用项目
-│   ├── Components/                   # Blazor 组件
-│   │   ├── Pages/
-│   │   │   └── Home.razor           # 主聊天界面
-│   │   ├── Layout/                  # 布局组件
-│   │   └── _Imports.razor           # 全局引用
-│   ├── Models/                      # 数据模型
-│   │   ├── AgentProfile.cs          # 智能体配置
-│   │   ├── ChatMessage.cs           # 聊天消息
-│   │   └── ChatSession.cs           # 会话
-│   ├── Services/                    # 业务服务
-│   │   ├── AgentChatService.cs      # 智能体聊天服务（核心）
-│   │   ├── ImageGenerationTool.cs   # 图片生成工具
-│   │   └── SessionService.cs        # 会话持久化服务
-│   ├── wwwroot/                     # 静态资源
-│   │   ├── app.css                  # 样式文件
-│   │   └── avatars/                 # 头像资源
-│   ├── Program.cs                   # 应用入口
-│   ├── appsettings.json             # 配置文件
-│   └── AgentGroupChat.Web.csproj    # 项目文件
-├── AgentGroupChat.AppHost/          # Aspire AppHost
-├── AgentGroupChat.ServiceDefaults/  # 服务默认配置
-├── AgentGroupChat.slnx              # 解决方案文件
-└── README.md                        # 本文档
+├── AgentGroupChat.AgentHost/       # Agent 服务（后端）
+│   ├── Services/                   # 核心服务
+│   │   ├── AgentRepository.cs      # 智能体配置管理
+│   │   ├── AgentGroupRepository.cs # 智能体组管理
+│   │   ├── WorkflowManager.cs      # Handoff 工作流管理
+│   │   ├── AgentChatService.cs     # 聊天服务核心
+│   │   ├── McpToolService.cs       # MCP 工具服务
+│   │   └── PersistedSessionService.cs # 会话持久化
+│   ├── Models/                     # 数据模型
+│   ├── Program.cs                  # API 端点定义
+│   └── appsettings.json            # 配置文件
+├── AgentGroupChat.Web/             # Web 前端（Blazor）
+│   ├── Components/Pages/
+│   │   └── Home.razor              # 聊天界面
+│   ├── Models/                     # 前端数据模型
+│   └── Program.cs                  # 前端入口
+├── AgentGroupChat.AppHost/         # Aspire AppHost
+├── AgentGroupChat.ServiceDefaults/ # 服务默认配置
+└── AgentGroupChat.slnx             # 解决方案文件
 ```
 
 ## 快速开始
@@ -61,7 +61,7 @@ agent-groupchat/
 ### 前置要求
 
 1. .NET 9.0 SDK 或更高版本
-2. Azure OpenAI 服务（或 OpenAI API）
+2. OpenAI 兼容 API 或 Azure OpenAI 服务
 3. Visual Studio 2022 或 VS Code
 
 ### 配置步骤
@@ -72,44 +72,61 @@ agent-groupchat/
    cd agent-framework-tutorial-code/agent-groupchat
    ```
 
-2. **配置 Azure OpenAI**
+2. **配置 AI 服务**
 
-   编辑 `appsettings.json` 文件：
+   编辑 `AgentGroupChat.AgentHost/appsettings.Development.json` 文件：
+
+   **方式一：使用国内兼容 OpenAI 接口（推荐国内用户）**
    ```json
    {
-     "AzureOpenAI": {
-       "Endpoint": "https://your-resource.openai.azure.com/",
-       "DeploymentName": "gpt-4o-mini"
+     "DefaultModelProvider": "OpenAI",
+     "OpenAI": {
+       "BaseUrl": "https://your-openai-compatible-api.com/v1",
+       "ModelName": "gpt-4o-mini",
+       "ApiKey": "your-api-key-here"
      }
    }
    ```
 
-   或者设置环境变量：
-   ```bash
-   export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
-   export AZURE_OPENAI_DEPLOYMENT_NAME="gpt-4o-mini"
+   **方式二：使用 Azure OpenAI（微软官方服务）**
+   ```json
+   {
+     "DefaultModelProvider": "AzureOpenAI",
+     "AzureOpenAI": {
+       "Endpoint": "https://your-resource.openai.azure.com/",
+       "DeploymentName": "gpt-4o-mini",
+       "ApiKey": "your-api-key-here"
+     }
+   }
    ```
 
-3. **配置 Azure 认证**
+3. **配置 MCP 图片生成服务（可选）**
 
-   应用使用 `DefaultAzureCredential`，支持以下认证方式：
-   - 环境变量
-   - 托管标识
-   - Visual Studio
-   - Azure CLI
-   - Azure PowerShell
-
-   最简单的方式是使用 Azure CLI 登录：
-   ```bash
-   az login
+   在 `appsettings.Development.json` 中配置阿里云 DashScope：
+   ```json
+   {
+     "McpServers": {
+       "Servers": [
+         {
+           "Id": "dashscope-text-to-image",
+           "Name": "DashScope Text-to-Image",
+           "Endpoint": "https://dashscope.aliyuncs.com/api/v1/mcps/TextToImage/sse",
+           "AuthType": "Bearer",
+           "BearerToken": "your-dashscope-api-key",
+           "TransportMode": "Sse",
+           "Enabled": true
+         }
+       ]
+     }
+   }
    ```
 
 4. **运行应用**
    ```bash
-   dotnet run
+   dotnet run --project AgentGroupChat.AppHost
    ```
 
-   应用将在 `https://localhost:5001` 启动。
+   应用将启动，Aspire Dashboard 会显示所有服务的地址。
 
 ## 使用说明
 
@@ -117,154 +134,177 @@ agent-groupchat/
 
 1. **创建新会话**: 点击左侧边栏的 "➕ New Chat" 按钮
 2. **切换会话**: 点击左侧会话列表中的任意会话
-3. **发送消息**: 在底部输入框输入消息并点击 "Send"
-4. **提及智能体**: 使用 `@AgentName` 格式提及特定智能体，例如：
-   - `@Sunny 今天天气真好！`
-   - `@Techie 能介绍一下 Blazor 吗？`
-   - `@Artsy 分享一张美丽的风景照`
-   - `@Foodie 推荐一道好吃的菜`
+3. **删除会话**: 在会话列表中点击删除按钮
+4. **发送消息**: 在底部输入框输入消息并点击 "Send"
+5. **提及智能体**: 使用 `@AgentName` 格式提及特定智能体，例如：
+   - `@艾莲 聊聊存在主义哲学`
+   - `@莉子 推荐好玩的游戏`
+   - `@克洛伊 未来科技趋势`
+   - `@安妮 分享有趣的故事`
+   - `@苏菲 旅行摄影技巧`
 
 ### 智能体特点
 
-#### ☀️ Sunny (阳光)
-- **性格**: 开朗乐观
-- **风格**: 积极向上，喜欢分享正能量
-- **适合话题**: 日常生活、心情分享、励志内容
+#### 🧠 艾莲 (Elena) - 巴黎研究员
+- **性格**: 理性、温柔、充满逻辑与诗意
+- **擅长**: 哲学思辨、文学鉴赏、艺术分析
+- **适合话题**: 文学、哲学、艺术、深度思考
 
-#### 🤖 Techie (技术宅)
-- **性格**: 理性分析
-- **风格**: 技术专业，善于解释原理
-- **适合话题**: 科技、编程、技术趋势
+#### 🎮 莉子 (Rina) - 东京元气少女
+- **性格**: 活泼、开朗、充满元气
+- **擅长**: 动漫、游戏、二次元文化
+- **适合话题**: 动漫、游戏、美食、手作、日本文化
 
-#### 🎨 Artsy (艺术家)
-- **性格**: 富有创意
-- **风格**: 感性表达，关注美学
-- **适合话题**: 艺术、设计、审美体验
+#### 🎨 克洛伊 (Chloe) - 虚拟艺术家
+- **性格**: 冷静、优雅、略带神秘感
+- **擅长**: 科技、美学、未来设计
+- **适合话题**: 科技、设计、建筑、时尚、未来主义
 
-#### 🍜 Foodie (美食家)
-- **性格**: 热情洋溢
-- **风格**: 生动描述，充满食欲
-- **适合话题**: 美食、烹饪、餐厅推荐
+#### �️ 安妮 (Annie) - 纽约电台主播
+- **性格**: 自然、亲切、带有幽默感
+- **擅长**: 轻松引导话题、分享生活趣事
+- **适合话题**: 音乐、电台、播客、都市生活、故事
+
+#### 📸 苏菲 (Sophie) - 旅行摄影师
+- **性格**: 平静、有艺术气息、略带哲理
+- **擅长**: 旅行、摄影、自然、人文
+- **适合话题**: 旅行、摄影、风景、光影、世界文化
 
 ## 技术实现
 
-### Handoff 模式
+### 智能体动态加载
 
-应用使用 Agent Framework 的 `AgentWorkflowBuilder` 实现 handoff 模式：
-
-```csharp
-// 创建 triage 智能体用于路由
-var triageAgent = new ChatClientAgent(chatClient, systemPrompt, "triage", "Routes messages");
-
-// 构建 handoff 工作流
-var builder = AgentWorkflowBuilder.CreateHandoffBuilderWith(triageAgent);
-
-// 添加从 triage 到各个智能体的切换
-builder.WithHandoffs(triageAgent, agents);
-
-// 添加从各个智能体返回 triage 的切换
-builder.WithHandoffs(agents, triageAgent);
-
-var workflow = builder.Build();
-```
-
-### 会话持久化
-
-使用 LiteDB 实现轻量级持久化存储：
+应用从 LiteDB 数据库动态加载智能体配置，支持运行时更新：
 
 ```csharp
-public class SessionService : IDisposable
+// AgentRepository - 管理智能体配置
+public class AgentRepository
 {
-    private readonly LiteDatabase _database;
-    private readonly ILiteCollection<ChatSession> _sessions;
-    
-    public SessionService()
-    {
-        _database = new LiteDatabase("sessions.db");
-        _sessions = _database.GetCollection<ChatSession>("sessions");
-    }
-    
-    // CRUD 操作...
+    public List<PersistedAgentProfile> GetAllEnabled() { }
+    public void Upsert(PersistedAgentProfile agent) { }
+    public void InitializeDefaultAgents() { }
 }
 ```
 
-### 图片生成
+### Handoff 工作流
 
-当前实现使用占位符图片服务。在生产环境中，可以集成：
-- DALL-E (OpenAI)
-- Stable Diffusion
-- Azure Computer Vision
+使用 `WorkflowManager` 管理智能体组的 Handoff 工作流：
 
 ```csharp
-public class ImageGenerationTool
-{
-    [Description("Generate an image based on a text prompt")]
-    public Task<string> GenerateImage(string prompt)
-    {
-        // 实际实现中集成真实的图片生成 API
-        return Task.FromResult(imageUrl);
-    }
-}
+// 为智能体组创建工作流
+var workflow = workflowManager.GetOrCreateWorkflow(groupId);
+
+// Triage Agent 自动路由消息到合适的智能体
+await workflow.InvokeAsync(chatHistory);
+```
+
+### MCP 图片生成集成
+
+通过 `McpToolService` 集成 Model Context Protocol 工具：
+
+```csharp
+// 从 MCP 服务器加载工具
+var tools = await mcpToolService.GetToolsAsync();
+
+// 智能体可调用 MCP 工具生成图片
+var imageUrl = await mcpTool.InvokeAsync(prompt);
+```
+
+### 持久化存储
+
+使用 LiteDB 存储四类数据：
+
+```csharp
+// 数据集合
+- agents: 智能体配置
+- agent_groups: 智能体组配置
+- sessions: 会话记录
+- messages: 聊天消息
 ```
 
 ## 开发和扩展
 
 ### 添加新智能体
 
-1. 在 `AgentChatService.cs` 的 `_agentProfiles` 列表中添加新的 `AgentProfile`
-2. 定义智能体的性格、系统提示词和描述
-3. 智能体会自动注册到 handoff 工作流中
+通过 Admin API 或直接修改数据库添加新智能体：
 
-### 自定义图片生成
+```bash
+# 调用初始化 API 重置默认智能体
+POST http://localhost:5000/api/admin/initialize
 
-修改 `ImageGenerationTool.cs` 以集成实际的图片生成服务：
-
-```csharp
-public async Task<string> GenerateImage(string prompt)
+# 或通过 API 添加自定义智能体
+POST http://localhost:5000/api/agents
 {
-    // 集成 DALL-E 或其他图片生成 API
-    var response = await dalleClient.GenerateImageAsync(prompt);
-    return response.ImageUrl;
+  "id": "custom_agent",
+  "name": "自定义智能体",
+  "avatar": "🎯",
+  "personality": "专业、友好",
+  "systemPrompt": "你的系统提示词...",
+  "enabled": true
 }
 ```
 
-### 自定义界面
+### 配置 MCP 服务器
 
-编辑 `wwwroot/app.css` 自定义样式，或修改 `Components/Pages/Home.razor` 调整布局。
+在 `appsettings.Development.json` 中添加 MCP 服务器：
+
+```json
+{
+  "McpServers": {
+    "Servers": [
+      {
+        "Id": "your-mcp-server",
+        "Name": "Your MCP Server",
+        "Endpoint": "https://your-endpoint.com/sse",
+        "AuthType": "Bearer",
+        "BearerToken": "your-token",
+        "TransportMode": "Sse",
+        "Enabled": true
+      }
+    ]
+  }
+}
+```
+
+### 自定义群组配置
+
+修改 `AgentGroupRepository.cs` 中的 `InitializeDefaultGroup()` 方法，自定义智能体组和 Triage 提示词。
 
 ## 故障排除
 
 ### 常见问题
 
-1. **"Azure OpenAI endpoint not configured" 错误**
-   - 检查 `appsettings.json` 中的配置
-   - 或设置相应的环境变量
+1. **模型服务连接失败**
+   - 检查 `appsettings.Development.json` 中的 `DefaultModelProvider` 配置
+   - 确认 OpenAI 或 AzureOpenAI 的 API Key 和 Endpoint 正确
+   - 国内用户建议使用 OpenAI 兼容接口，设置正确的 `BaseUrl`
 
-2. **认证失败**
-   - 确保已使用 `az login` 登录
-   - 或配置了正确的服务主体凭据
+2. **MCP 图片生成失败**
+   - 检查阿里云 DashScope 的 `BearerToken` 是否配置
+   - 确认 MCP 服务器的 `Enabled` 为 `true`
+   - 查看日志确认 MCP 连接状态
 
 3. **智能体无响应**
-   - 检查 Azure OpenAI 部署是否正常
-   - 确认模型名称（DeploymentName）是否正确
-   - 查看应用日志获取详细错误信息
+   - 检查日志查看路由和调用详情
+   - 确认智能体在数据库中 `Enabled` 为 `true`
+   - 验证智能体是否在群组的 `AgentIds` 列表中
 
-4. **数据库锁定**
-   - 确保没有多个应用实例同时访问数据库
-   - 如需重置，删除 `Data/sessions.db` 文件
+4. **会话或消息未保存**
+   - 检查 LiteDB 数据库文件权限
+   - 查看日志确认持久化操作是否成功
 
-## 参考资料
+## 学习资源
 
-- [Microsoft Agent Framework 官方文档](https://github.com/microsoft/agent-framework)
-- [AgentWebChat 示例](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/AgentWebChat)
-- [Workflow Patterns 示例](https://github.com/microsoft/agent-framework/blob/main/dotnet/samples/GettingStarted/Workflows/_Foundational/04_AgentWorkflowPatterns/Program.cs)
-- [Blazor 文档](https://learn.microsoft.com/aspnet/core/blazor)
-- [Azure OpenAI 文档](https://learn.microsoft.com/azure/ai-services/openai/)
-
-## 许可证
-
-本项目遵循 MIT 许可证。
+- [Microsoft Agent Framework 文档](https://github.com/microsoft/agent-framework)
+- [.NET Aspire 文档](https://learn.microsoft.com/dotnet/aspire)
+- [MudBlazor 组件库](https://mudblazor.com/)
+- [Model Context Protocol](https://modelcontextprotocol.io/)
+- [阿里云 DashScope](https://dashscope.aliyun.com/)
 
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request！
+
+## 许可证
+
+MIT License
