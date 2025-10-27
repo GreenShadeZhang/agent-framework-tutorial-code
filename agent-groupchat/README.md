@@ -2,6 +2,17 @@
 
 基于 Microsoft Agent Framework Handoff 模式的多智能体群聊应用。
 
+## 📸 应用截图
+
+![Agent Group Chat 应用截图](../assets/agent-groupchat.jpg)
+
+## 🎬 演示视频
+
+> 📺 **观看完整演示**: [点击这里观看视频演示](#)  
+> *(请将链接替换为您上传到 GitHub 的实际视频地址)*
+
+---
+
 ## 功能特性
 
 ### 核心功能
