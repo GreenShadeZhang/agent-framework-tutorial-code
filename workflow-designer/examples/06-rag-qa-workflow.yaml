@@ -1,0 +1,199 @@
+# RAG 问答工作流示例
+# 检索增强生成的智能问答系统
+kind: Workflow
+metadata:
+  name: rag_qa_workflow
+  version: "1.0"
+  description: 基于 RAG（检索增强生成）的智能问答工作流
+
+variables:
+  - name: UserQuestion
+    scope: Local
+    type: string
+  - name: SearchQuery
+    scope: Local
+    type: string
+  - name: RetrievedContext
+    scope: Local
+    type: string
+  - name: Answer
+    scope: Local
+    type: string
+  - name: Confidence
+    scope: Local
+    type: string
+  - name: Sources
+    scope: Local
+    type: string
+
+executors:
+  # 欢迎
+  - id: welcome
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          🤖 智能知识问答助手
+          ─────────────────────
+          我可以回答关于产品、技术文档、公司政策等方面的问题。
+          我会先检索相关知识，再给出准确的回答。
+    edges:
+      - targetId: get_question
+
+  # 获取问题
+  - id: get_question
+    type: Question
+    properties:
+      prompt: "请输入您的问题："
+      variable: Local.UserQuestion
+    edges:
+      - targetId: query_understanding
+
+  # 问题理解与查询优化
+  - id: query_understanding
+    type: InvokeAzureAgent
+    properties:
+      agentId: query_optimizer
+      instructions: |
+        你是一个查询优化专家。
+        
+        用户问题：${Local.UserQuestion}
+        
+        请分析用户意图，生成优化的搜索查询关键词。
+        输出格式：
+        - 核心关键词（用空格分隔）
+        - 相关扩展词
+        
+        只输出关键词，不需要解释。
+      message: 优化查询
+      result: Local.SearchQuery
+    edges:
+      - targetId: show_search_query
+
+  - id: show_search_query
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: "🔍 搜索关键词：${Local.SearchQuery}"
+    edges:
+      - targetId: retrieve_context
+
+  # 知识检索（模拟）
+  - id: retrieve_context
+    type: InvokeAzureAgent
+    properties:
+      agentId: knowledge_retriever
+      instructions: |
+        你是一个知识库检索系统。
+        
+        搜索查询：${Local.SearchQuery}
+        原始问题：${Local.UserQuestion}
+        
+        请模拟从知识库中检索到的相关文档片段。
+        生成3-5个相关的知识片段，格式如下：
+        
+        [文档1: 标题]
+        相关内容摘录...
+        
+        [文档2: 标题]
+        相关内容摘录...
+        
+        确保内容看起来像真实的企业知识库文档。
+      message: 检索知识
+      result: Local.RetrievedContext
+    edges:
+      - targetId: show_context
+
+  - id: show_context
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          📚 检索到的相关知识：
+          ─────────────────────
+          ${Local.RetrievedContext}
+    edges:
+      - targetId: generate_answer
+
+  # 生成答案
+  - id: generate_answer
+    type: InvokeAzureAgent
+    properties:
+      agentId: answer_generator
+      instructions: |
+        你是一个基于知识库的问答专家。
+        
+        用户问题：${Local.UserQuestion}
+        
+        相关知识：
+        ${Local.RetrievedContext}
+        
+        请基于检索到的知识回答用户问题：
+        1. 答案必须基于提供的知识，不要编造
+        2. 如果知识不足以回答，请诚实说明
+        3. 引用知识来源
+        4. 提供清晰、结构化的回答
+        
+        在回答末尾评估答案的置信度（高/中/低）。
+      message: 生成答案
+      result: Local.Answer
+    edges:
+      - targetId: extract_confidence
+
+  # 提取置信度
+  - id: extract_confidence
+    type: InvokeAzureAgent
+    properties:
+      agentId: confidence_extractor
+      instructions: |
+        从以下回答中提取置信度。
+        只返回 "高"、"中" 或 "低" 其中一个。
+        
+        回答：${Local.Answer}
+      message: 提取置信度
+      result: Local.Confidence
+    edges:
+      - targetId: format_response
+
+  # 格式化响应
+  - id: format_response
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          ════════════════════════════════
+          💡 回答
+          ════════════════════════════════
+          
+          ${Local.Answer}
+          
+          ────────────────────────────────
+          📊 置信度：${Local.Confidence}
+          📖 基于知识库检索结果生成
+    edges:
+      - targetId: ask_followup
+
+  # 询问后续问题
+  - id: ask_followup
+    type: Question
+    properties:
+      prompt: "还有其他问题吗？（输入问题继续，输入'结束'退出）"
+      variable: Local.UserQuestion
+    edges:
+      - targetId: goodbye
+        condition: Local.UserQuestion == '结束'
+      - targetId: query_understanding
+
+  # 结束
+  - id: goodbye
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          感谢使用智能问答助手！
+          如有更多问题，随时回来咨询。👋

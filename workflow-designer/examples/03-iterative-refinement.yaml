@@ -1,0 +1,209 @@
+# 迭代优化工作流示例
+# Writer → Reviewer 循环，直到内容达标
+kind: Workflow
+metadata:
+  name: iterative_refinement_workflow
+  version: "1.0"
+  description: 写作-评审迭代工作流，通过多轮优化产出高质量内容
+
+variables:
+  - name: Topic
+    scope: Local
+    type: string
+  - name: Draft
+    scope: Local
+    type: string
+  - name: Feedback
+    scope: Local
+    type: string
+  - name: IsApproved
+    scope: Local
+    type: string
+  - name: IterationCount
+    scope: Local
+    type: number
+  - name: FinalContent
+    scope: Local
+    type: string
+
+executors:
+  # 初始化
+  - id: initialize
+    type: SetVariable
+    properties:
+      variable: Local.IterationCount
+      value: "0"
+    edges:
+      - targetId: get_topic
+
+  # 获取写作主题
+  - id: get_topic
+    type: Question
+    properties:
+      prompt: "请输入您想要撰写的主题或内容要求："
+      variable: Local.Topic
+    edges:
+      - targetId: writer_agent
+
+  # 写作智能体
+  - id: writer_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: content_writer
+      instructions: |
+        你是一位专业的内容写作专家。
+        
+        写作主题：${Local.Topic}
+        
+        ${Local.Feedback != '' ? '请根据以下反馈进行修改：\n' + Local.Feedback : '请撰写一篇高质量的内容。'}
+        
+        要求：
+        1. 结构清晰，逻辑严谨
+        2. 语言生动，易于理解
+        3. 内容准确，有说服力
+        
+        当前是第 ${Local.IterationCount} 次修改。
+      message: 请开始写作
+      result: Local.Draft
+    edges:
+      - targetId: increment_counter
+
+  # 增加迭代计数
+  - id: increment_counter
+    type: SetVariable
+    properties:
+      variable: Local.IterationCount
+      value: "=${Local.IterationCount + 1}"
+    edges:
+      - targetId: show_draft
+
+  # 显示当前草稿
+  - id: show_draft
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          📝 第 ${Local.IterationCount} 版草稿：
+          ─────────────────────
+          ${Local.Draft}
+          ─────────────────────
+    edges:
+      - targetId: reviewer_agent
+
+  # 评审智能体
+  - id: reviewer_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: content_reviewer
+      instructions: |
+        你是一位严格的内容审核专家。
+        
+        请评审以下内容：
+        ${Local.Draft}
+        
+        评审标准：
+        1. 内容准确性和完整性
+        2. 结构和逻辑清晰度
+        3. 语言表达质量
+        4. 是否符合主题要求
+        
+        请返回JSON格式：
+        {
+          "approved": true/false,
+          "feedback": "具体的改进建议（如果不通过）"
+        }
+        
+        如果质量足够好（评分>=8/10），设置 approved 为 true。
+        这是第 ${Local.IterationCount} 次评审，最多允许3次修改。
+      message: 请评审内容
+      result: Local.Feedback
+    edges:
+      - targetId: parse_review
+
+  # 解析评审结果
+  - id: parse_review
+    type: InvokeAzureAgent
+    properties:
+      agentId: parser
+      instructions: |
+        从以下评审结果中提取 approved 字段的值。
+        只返回 "true" 或 "false"，不要其他内容。
+        
+        评审结果：${Local.Feedback}
+      message: 提取 approved 值
+      result: Local.IsApproved
+    edges:
+      - targetId: check_approval
+
+  # 检查是否通过
+  - id: check_approval
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: "🔍 评审结果：${Local.IsApproved == 'true' ? '✅ 已通过' : '❌ 需要修改'}"
+    edges:
+      - targetId: finalize
+        condition: Local.IsApproved == 'true'
+      - targetId: check_max_iterations
+        condition: Local.IsApproved != 'true'
+
+  # 检查最大迭代次数
+  - id: check_max_iterations
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: "当前迭代次数：${Local.IterationCount}/3"
+    edges:
+      - targetId: force_finalize
+        condition: Local.IterationCount >= 3
+      - targetId: writer_agent
+        condition: Local.IterationCount < 3
+
+  # 强制完成（达到最大次数）
+  - id: force_finalize
+    type: SetVariable
+    properties:
+      variable: Local.FinalContent
+      value: =Local.Draft
+    edges:
+      - targetId: output_final_forced
+
+  - id: output_final_forced
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          ⚠️ 已达到最大修改次数（3次），输出当前版本：
+          
+          📄 最终内容：
+          ════════════════════
+          ${Local.FinalContent}
+          ════════════════════
+
+  # 正常完成
+  - id: finalize
+    type: SetVariable
+    properties:
+      variable: Local.FinalContent
+      value: =Local.Draft
+    edges:
+      - targetId: output_final
+
+  - id: output_final
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          🎉 内容已通过评审！
+          
+          📄 最终内容：
+          ════════════════════
+          ${Local.FinalContent}
+          ════════════════════
+          
+          总共经过 ${Local.IterationCount} 次迭代优化。

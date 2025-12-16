@@ -51,6 +51,8 @@ builder.Services.AddScoped<IRepository<WorkflowDefinition>>(sp =>
     new LiteDbRepository<WorkflowDefinition>(sp.GetRequiredService<LiteDbContext>(), "workflows"));
 builder.Services.AddScoped<IRepository<ExecutionLog>>(sp =>
     new LiteDbRepository<ExecutionLog>(sp.GetRequiredService<LiteDbContext>(), "execution_logs"));
+builder.Services.AddScoped<IRepository<DeclarativeWorkflowDefinition>>(sp =>
+    new LiteDbRepository<DeclarativeWorkflowDefinition>(sp.GetRequiredService<LiteDbContext>(), "declarative_workflows"));
 
 // Configure AI Chat Client (使用 OpenAI 或 Azure OpenAI)
 var openAiApiKey = builder.Configuration["OpenAI:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
@@ -64,9 +66,13 @@ if (!string.IsNullOrEmpty(openAiApiKey))
         try
         {
             // 使用 OpenAI Chat Client
-            var client = new OpenAIClient(new ApiKeyCredential(openAiApiKey), new OpenAIClientOptions() { Endpoint = new Uri(openAiBaseUrl ?? "") });
-            var chatClient = client.GetChatClient(openAiModel);
-            return chatClient as IChatClient ?? new EmptyChatClient();
+            // 注意：使用 AsIChatClient() 扩展方法将 ChatClient 转换为 IChatClient
+            var clientOptions = string.IsNullOrEmpty(openAiBaseUrl)
+                ? new OpenAIClientOptions()
+                : new OpenAIClientOptions { Endpoint = new Uri(openAiBaseUrl) };
+            var client = new OpenAIClient(new ApiKeyCredential(openAiApiKey), clientOptions);
+            var chatClient = client.GetChatClient(openAiModel).AsIChatClient();
+            return chatClient;
         }
         catch (Exception ex)
         {
@@ -92,7 +98,11 @@ builder.Services.AddScoped<WorkflowExecutor>();
 // Register services
 builder.Services.AddScoped<IAgentService, AgentService>();
 builder.Services.AddScoped<IWorkflowService, WorkflowService>();
+builder.Services.AddScoped<IDeclarativeWorkflowService, DeclarativeWorkflowService>();
 builder.Services.AddSingleton<ITemplateService, ScribanTemplateService>();
+
+// Register YAML conversion service for declarative workflows
+builder.Services.AddSingleton<YamlConversionService>();
 
 var app = builder.Build();
 

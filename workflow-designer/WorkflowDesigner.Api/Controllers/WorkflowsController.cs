@@ -223,7 +223,53 @@ public class WorkflowsController : ControllerBase
     }
 
     /// <summary>
-    /// 导出为 Agent Framework YAML 格式
+    /// 导出工作流为 YAML 格式 (POST - 接收完整工作流数据)
+    /// </summary>
+    [HttpPost("export-yaml")]
+    public ActionResult<string> ExportWorkflowToYaml([FromBody] DeclarativeWorkflowDefinition workflow)
+    {
+        try
+        {
+            var yamlService = HttpContext.RequestServices.GetRequiredService<YamlConversionService>();
+            var yaml = yamlService.ConvertToYaml(workflow);
+            return Content(yaml, "text/yaml");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting workflow to YAML");
+            return StatusCode(500, $"导出失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 从 YAML 导入工作流（仅解析，不保存）
+    /// 注意：要导入并保存声明式工作流，请使用 /api/declarative-workflows/import-yaml
+    /// </summary>
+    [HttpPost("import-yaml")]
+    public async Task<ActionResult<DeclarativeWorkflowDefinition>> ImportWorkflowFromYaml()
+    {
+        try
+        {
+            using var reader = new StreamReader(Request.Body);
+            var yaml = await reader.ReadToEndAsync();
+            
+            var yamlService = HttpContext.RequestServices.GetRequiredService<YamlConversionService>();
+            var workflow = yamlService.ParseFromYaml(yaml);
+            
+            _logger.LogInformation("YAML 工作流已解析，名称: {Name}, 节点数: {Count}", 
+                workflow.Name, workflow.Executors.Count);
+            
+            return Ok(workflow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error importing workflow from YAML");
+            return BadRequest($"导入失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 导出为 Agent Framework YAML 格式 (根据 ID)
     /// </summary>
     [HttpGet("{id}/export-yaml")]
     public async Task<ActionResult<string>> ExportToAgentFrameworkYaml(string id)

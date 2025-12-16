@@ -1,0 +1,186 @@
+# Foreach 循环处理工作流示例
+# 批量处理多个项目
+kind: Workflow
+metadata:
+  name: foreach_processing_workflow
+  version: "1.0"
+  description: 使用 Foreach 循环批量处理多个任务项
+
+variables:
+  - name: TaskList
+    scope: Local
+    type: string
+  - name: ParsedTasks
+    scope: Local
+    type: array
+  - name: CurrentTask
+    scope: Local
+    type: string
+  - name: ProcessedResult
+    scope: Local
+    type: string
+  - name: AllResults
+    scope: Local
+    type: array
+  - name: Summary
+    scope: Local
+    type: string
+
+executors:
+  # 欢迎和说明
+  - id: welcome
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          📝 批量任务处理助手
+          ────────────────────
+          我可以帮您批量处理多个任务，例如：
+          - 批量翻译多段文本
+          - 批量分析多个主题
+          - 批量生成多份内容
+    edges:
+      - targetId: get_tasks
+
+  # 获取任务列表
+  - id: get_tasks
+    type: Question
+    properties:
+      prompt: |
+        请输入您要处理的任务列表（每行一个任务）：
+        例如：
+        翻译：Hello World
+        翻译：Good Morning
+        翻译：Thank You
+      variable: Local.TaskList
+    edges:
+      - targetId: parse_tasks
+
+  # 解析任务列表
+  - id: parse_tasks
+    type: InvokeAzureAgent
+    properties:
+      agentId: task_parser
+      instructions: |
+        将以下文本解析为任务数组。
+        每行是一个独立任务。
+        返回 JSON 数组格式：["任务1", "任务2", ...]
+        
+        输入：
+        ${Local.TaskList}
+      message: 解析任务
+      result: Local.ParsedTasks
+    edges:
+      - targetId: show_parsed_tasks
+
+  - id: show_parsed_tasks
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          ✅ 识别到以下任务：
+          ${Local.ParsedTasks}
+          
+          开始批量处理...
+    edges:
+      - targetId: init_results
+
+  # 初始化结果数组
+  - id: init_results
+    type: SetVariable
+    properties:
+      variable: Local.AllResults
+      value: "[]"
+    edges:
+      - targetId: foreach_tasks
+
+  # Foreach 循环处理
+  - id: foreach_tasks
+    type: Foreach
+    properties:
+      collection: =Local.ParsedTasks
+      item: Local.CurrentTask
+    edges:
+      - targetId: process_task
+
+  # 处理单个任务
+  - id: process_task
+    type: InvokeAzureAgent
+    properties:
+      agentId: task_processor
+      instructions: |
+        请处理以下任务：
+        ${Local.CurrentTask}
+        
+        识别任务类型并执行：
+        - 如果是翻译任务：翻译成中文
+        - 如果是分析任务：提供简要分析
+        - 如果是生成任务：生成请求的内容
+        - 其他类型：尽力完成任务
+        
+        只返回处理结果，不需要解释。
+      message: =Local.CurrentTask
+      result: Local.ProcessedResult
+    edges:
+      - targetId: show_progress
+
+  - id: show_progress
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          ⏳ 任务：${Local.CurrentTask}
+          ✓ 结果：${Local.ProcessedResult}
+    edges:
+      - targetId: collect_result
+
+  # 收集结果
+  - id: collect_result
+    type: SetVariable
+    properties:
+      variable: Local.AllResults
+      value: "=[...${Local.AllResults}, {task: '${Local.CurrentTask}', result: '${Local.ProcessedResult}'}]"
+    edges:
+      # 返回 Foreach 继续下一个，或结束循环
+      - targetId: foreach_tasks
+        condition: "=hasMoreItems"
+      - targetId: summarize_results
+        condition: "=!hasMoreItems"
+
+  # 汇总所有结果
+  - id: summarize_results
+    type: InvokeAzureAgent
+    properties:
+      agentId: summarizer
+      instructions: |
+        请为以下批处理结果生成一个简洁的汇总：
+        
+        ${Local.AllResults}
+        
+        汇总应包括：
+        1. 总共处理了多少个任务
+        2. 各任务的简要结果
+        3. 整体完成情况
+      message: 生成汇总
+      result: Local.Summary
+    edges:
+      - targetId: final_output
+
+  # 最终输出
+  - id: final_output
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          ════════════════════════════════
+          📊 批量处理完成
+          ════════════════════════════════
+          
+          ${Local.Summary}
+          
+          ────────────────────────────────
+          🎉 所有任务已处理完毕！

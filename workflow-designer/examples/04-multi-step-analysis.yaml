@@ -1,0 +1,243 @@
+# 多步骤分析工作流示例
+# 复杂的顺序处理流程
+kind: Workflow
+metadata:
+  name: multi_step_analysis_workflow
+  version: "1.0"
+  description: 多步骤数据分析工作流，依次进行数据收集、分析、可视化建议和报告生成
+
+variables:
+  - name: DataSource
+    scope: Local
+    type: string
+  - name: AnalysisType
+    scope: Local
+    type: string
+  - name: RawData
+    scope: Local
+    type: string
+  - name: CleanedData
+    scope: Local
+    type: string
+  - name: AnalysisResult
+    scope: Local
+    type: string
+  - name: Visualization
+    scope: Local
+    type: string
+  - name: FinalReport
+    scope: Local
+    type: string
+
+executors:
+  # Step 1: 收集需求
+  - id: collect_requirements
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          📊 欢迎使用智能数据分析助手！
+          我将帮您完成以下步骤：
+          1️⃣ 数据收集与清洗
+          2️⃣ 数据分析
+          3️⃣ 可视化建议
+          4️⃣ 报告生成
+    edges:
+      - targetId: get_data_source
+
+  - id: get_data_source
+    type: Question
+    properties:
+      prompt: "请描述您的数据来源和数据内容（例如：销售数据、用户行为数据等）："
+      variable: Local.DataSource
+    edges:
+      - targetId: get_analysis_type
+
+  - id: get_analysis_type
+    type: Question
+    properties:
+      prompt: "请选择分析类型：\n1. 趋势分析\n2. 对比分析\n3. 预测分析\n4. 综合分析"
+      variable: Local.AnalysisType
+    edges:
+      - targetId: simulate_data
+
+  # Step 2: 模拟数据收集
+  - id: simulate_data
+    type: InvokeAzureAgent
+    properties:
+      agentId: data_collector
+      instructions: |
+        你是一个数据模拟专家。
+        根据用户描述的数据源，生成一组模拟的示例数据。
+        
+        数据源描述：${Local.DataSource}
+        
+        请生成一个包含10-15条记录的数据表格（使用Markdown格式）。
+        数据应该看起来真实且有分析价值。
+      message: 生成模拟数据
+      result: Local.RawData
+    edges:
+      - targetId: show_raw_data
+
+  - id: show_raw_data
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          📥 Step 1/4 - 数据收集完成
+          ─────────────────────
+          ${Local.RawData}
+    edges:
+      - targetId: clean_data
+
+  # Step 3: 数据清洗
+  - id: clean_data
+    type: InvokeAzureAgent
+    properties:
+      agentId: data_cleaner
+      instructions: |
+        你是一个数据清洗专家。
+        
+        请对以下数据进行清洗处理：
+        ${Local.RawData}
+        
+        清洗步骤：
+        1. 检查并处理缺失值
+        2. 识别并处理异常值
+        3. 标准化数据格式
+        4. 添加必要的计算列
+        
+        输出清洗后的数据表格和清洗说明。
+      message: 清洗数据
+      result: Local.CleanedData
+    edges:
+      - targetId: show_cleaned_data
+
+  - id: show_cleaned_data
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          🧹 Step 2/4 - 数据清洗完成
+          ─────────────────────
+          ${Local.CleanedData}
+    edges:
+      - targetId: analyze_data
+
+  # Step 4: 数据分析
+  - id: analyze_data
+    type: InvokeAzureAgent
+    properties:
+      agentId: data_analyst
+      instructions: |
+        你是一个资深数据分析师。
+        
+        分析类型：${Local.AnalysisType}
+        数据：${Local.CleanedData}
+        
+        请进行深入分析，包括：
+        1. 关键发现（3-5个要点）
+        2. 统计指标（均值、趋势、占比等）
+        3. 洞察和结论
+        4. 建议行动项
+        
+        使用结构化的格式输出。
+      message: 分析数据
+      result: Local.AnalysisResult
+    edges:
+      - targetId: show_analysis
+
+  - id: show_analysis
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          📈 Step 3/4 - 数据分析完成
+          ─────────────────────
+          ${Local.AnalysisResult}
+    edges:
+      - targetId: suggest_visualization
+
+  # Step 5: 可视化建议
+  - id: suggest_visualization
+    type: InvokeAzureAgent
+    properties:
+      agentId: viz_expert
+      instructions: |
+        你是一个数据可视化专家。
+        
+        基于以下分析结果，提供可视化建议：
+        ${Local.AnalysisResult}
+        
+        请推荐：
+        1. 3-5种合适的图表类型
+        2. 每种图表的用途说明
+        3. 数据与图表的映射建议
+        4. 配色和布局建议
+        
+        使用表格或列表格式输出。
+      message: 提供可视化建议
+      result: Local.Visualization
+    edges:
+      - targetId: show_visualization
+
+  - id: show_visualization
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          🎨 Step 4/4 - 可视化建议
+          ─────────────────────
+          ${Local.Visualization}
+    edges:
+      - targetId: generate_report
+
+  # Step 6: 生成最终报告
+  - id: generate_report
+    type: InvokeAzureAgent
+    properties:
+      agentId: report_writer
+      instructions: |
+        你是一个专业的报告撰写专家。
+        
+        请基于以下内容生成一份完整的分析报告：
+        
+        【数据源】${Local.DataSource}
+        【分析类型】${Local.AnalysisType}
+        【分析结果】${Local.AnalysisResult}
+        【可视化建议】${Local.Visualization}
+        
+        报告结构：
+        1. 执行摘要（100字以内）
+        2. 核心发现
+        3. 详细分析
+        4. 建议与行动项
+        5. 附录：可视化方案
+        
+        使用专业的商业报告风格。
+      message: 生成分析报告
+      result: Local.FinalReport
+    edges:
+      - targetId: output_report
+
+  # 输出最终报告
+  - id: output_report
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          ═══════════════════════════════
+          📋 数据分析报告
+          ═══════════════════════════════
+          
+          ${Local.FinalReport}
+          
+          ═══════════════════════════════
+          ✅ 分析流程已完成！
+          如需导出报告，请复制以上内容。

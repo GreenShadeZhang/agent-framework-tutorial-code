@@ -1,0 +1,124 @@
+# 并行执行多智能体工作流示例
+# 三个领域专家同时分析用户问题，最后汇总结果
+kind: Workflow
+metadata:
+  name: parallel_agents_workflow
+  version: "1.0"
+  description: 并行执行多个智能体，同时获取研究、营销、法务三个角度的分析
+
+# 变量定义
+variables:
+  - name: UserQuery
+    scope: Local
+    type: string
+  - name: ResearchResult
+    scope: Local
+    type: string
+  - name: MarketingResult
+    scope: Local
+    type: string
+  - name: LegalResult
+    scope: Local
+    type: string
+  - name: FinalSummary
+    scope: Local
+    type: string
+
+# 执行器定义
+executors:
+  # 入口：接收用户输入
+  - id: receive_input
+    type: Question
+    properties:
+      prompt: "请输入您想要分析的业务场景或产品描述："
+      variable: Local.UserQuery
+    edges:
+      # Fan-out: 同时触发三个智能体
+      - targetId: research_agent
+      - targetId: marketing_agent
+      - targetId: legal_agent
+
+  # 研究分析师智能体
+  - id: research_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: researcher
+      instructions: |
+        你是一位专业的市场研究分析师。
+        请分析以下业务场景，提供：
+        1. 市场机会分析
+        2. 竞争对手情况
+        3. 潜在风险
+        保持简洁，不超过200字。
+      message: =Local.UserQuery
+      result: Local.ResearchResult
+    edges:
+      - targetId: aggregate_results
+
+  # 营销策略师智能体
+  - id: marketing_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: marketer
+      instructions: |
+        你是一位创意营销策略师。
+        请为以下场景提供：
+        1. 目标客户定位
+        2. 核心价值主张
+        3. 营销渠道建议
+        保持简洁，不超过200字。
+      message: =Local.UserQuery
+      result: Local.MarketingResult
+    edges:
+      - targetId: aggregate_results
+
+  # 法务合规顾问智能体
+  - id: legal_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: legal
+      instructions: |
+        你是一位谨慎的法务合规顾问。
+        请审查以下场景，指出：
+        1. 潜在的合规风险
+        2. 需要注意的法律事项
+        3. 免责声明建议
+        保持简洁，不超过200字。
+      message: =Local.UserQuery
+      result: Local.LegalResult
+    edges:
+      - targetId: aggregate_results
+
+  # 汇总结果 (Fan-in)
+  - id: aggregate_results
+    type: InvokeAzureAgent
+    properties:
+      agentId: summarizer
+      instructions: |
+        你是一位综合分析专家。请将以下三位专家的分析结果整合成一份简洁的执行摘要。
+        
+        【研究分析】
+        ${Local.ResearchResult}
+        
+        【营销建议】
+        ${Local.MarketingResult}
+        
+        【法务意见】
+        ${Local.LegalResult}
+        
+        请提供一份500字以内的综合报告，包括核心建议和注意事项。
+      message: 请整合分析结果
+      result: Local.FinalSummary
+    edges:
+      - targetId: output_result
+
+  # 输出最终结果
+  - id: output_result
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: |
+          📊 综合分析报告
+          ================
+          ${Local.FinalSummary}

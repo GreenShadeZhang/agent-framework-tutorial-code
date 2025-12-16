@@ -1,0 +1,134 @@
+#
+# 客户服务工作流示例
+# 演示条件分支、多智能体协作和循环
+#
+# 工作流逻辑：
+# 1. 接收用户问题
+# 2. 调用分类智能体判断问题类型
+# 3. 根据类型路由到不同的处理智能体
+# 4. 如果未解决，循环继续
+#
+kind: Workflow
+trigger:
+  kind: OnConversationStart
+  id: customer_service_workflow
+  actions:
+
+    # 初始化变量
+    - kind: SetVariable
+      id: init_resolved
+      variable: Local.IsResolved
+      value: =false
+
+    - kind: SetVariable
+      id: init_turn_count
+      variable: Local.TurnCount
+      value: =0
+
+    # 调用分类智能体
+    - kind: InvokeAzureAgent
+      id: classifier_agent
+      conversationId: =System.ConversationId
+      agent:
+        name: ClassifierAgent
+      output:
+        responseObject: Local.Classification
+
+    # 根据分类结果路由
+    - kind: ConditionGroup
+      id: route_by_type
+      conditions:
+        
+        # 技术支持
+        - condition: =Local.Classification.Type = "Technical"
+          id: route_technical
+          actions:
+            - kind: InvokeAzureAgent
+              id: tech_support_agent
+              conversationId: =System.ConversationId
+              agent:
+                name: TechSupportAgent
+              output:
+                responseObject: Local.SupportResponse
+
+            - kind: SetVariable
+              id: set_resolved_tech
+              variable: Local.IsResolved
+              value: =Local.SupportResponse.IsResolved
+
+        # 账单问题
+        - condition: =Local.Classification.Type = "Billing"
+          id: route_billing
+          actions:
+            - kind: InvokeAzureAgent
+              id: billing_agent
+              conversationId: =System.ConversationId
+              agent:
+                name: BillingAgent
+              output:
+                responseObject: Local.BillingResponse
+
+            - kind: SetVariable
+              id: set_resolved_billing
+              variable: Local.IsResolved
+              value: =Local.BillingResponse.IsResolved
+
+      # 默认处理
+      elseActions:
+        - kind: InvokeAzureAgent
+          id: general_agent
+          conversationId: =System.ConversationId
+          agent:
+            name: GeneralAgent
+          output:
+            responseObject: Local.GeneralResponse
+
+        - kind: SetVariable
+          id: set_resolved_general
+          variable: Local.IsResolved
+          value: =Local.GeneralResponse.IsResolved
+
+    # 检查是否解决
+    - kind: ConditionGroup
+      id: check_resolved
+      conditions:
+        - condition: =Local.IsResolved
+          id: if_resolved
+          actions:
+            - kind: SendActivity
+              id: send_resolved
+              activity: "很高兴能帮助到您！还有其他问题吗？"
+            
+            - kind: GotoAction
+              id: goto_end
+              actionId: workflow_complete
+
+    # 增加轮次计数
+    - kind: SetVariable
+      id: increment_turn
+      variable: Local.TurnCount
+      value: =Local.TurnCount + 1
+
+    # 检查是否超过最大轮次
+    - kind: ConditionGroup
+      id: check_max_turns
+      conditions:
+        - condition: =Local.TurnCount < 3
+          id: continue_if_not_max
+          actions:
+            - kind: SendActivity
+              id: send_continue
+              activity: "让我继续帮您解决这个问题..."
+            
+            - kind: GotoAction
+              id: goto_classifier
+              actionId: classifier_agent
+
+      elseActions:
+        - kind: SendActivity
+          id: send_escalate
+          activity: "这个问题需要人工客服介入，正在为您转接..."
+
+    # 工作流完成
+    - kind: EndWorkflow
+      id: workflow_complete

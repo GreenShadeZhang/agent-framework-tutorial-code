@@ -1,0 +1,154 @@
+# 条件分支工作流示例
+# 根据用户意图路由到不同的处理分支
+kind: Workflow
+metadata:
+  name: conditional_routing_workflow
+  version: "1.0"
+  description: 智能路由工作流，根据用户意图分发到不同的专业处理分支
+
+variables:
+  - name: UserMessage
+    scope: Local
+    type: string
+  - name: Intent
+    scope: Local
+    type: string
+  - name: Response
+    scope: Local
+    type: string
+
+executors:
+  # 欢迎消息
+  - id: welcome
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: "👋 欢迎使用智能客服系统！我可以帮您处理：产品咨询、技术支持、投诉建议等问题。"
+    edges:
+      - targetId: get_user_input
+
+  # 获取用户输入
+  - id: get_user_input
+    type: Question
+    properties:
+      prompt: "请描述您的问题："
+      variable: Local.UserMessage
+    edges:
+      - targetId: classify_intent
+
+  # 意图分类智能体
+  - id: classify_intent
+    type: InvokeAzureAgent
+    properties:
+      agentId: intent_classifier
+      instructions: |
+        你是一个意图分类器。根据用户消息，判断用户意图并只返回以下类别之一：
+        - PRODUCT: 产品咨询、价格询问、功能了解
+        - TECH: 技术问题、使用帮助、故障排除
+        - COMPLAINT: 投诉、建议、不满反馈
+        - OTHER: 其他无法分类的问题
+        
+        只返回类别名称，不要其他内容。
+      message: =Local.UserMessage
+      result: Local.Intent
+    edges:
+      # 条件路由
+      - targetId: product_agent
+        condition: Local.Intent == 'PRODUCT'
+      - targetId: tech_agent
+        condition: Local.Intent == 'TECH'
+      - targetId: complaint_agent
+        condition: Local.Intent == 'COMPLAINT'
+      - targetId: general_agent
+        condition: Local.Intent == 'OTHER'
+
+  # 产品咨询智能体
+  - id: product_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: product_expert
+      instructions: |
+        你是产品咨询专家，热情专业地回答用户关于产品的问题。
+        包括：产品功能、价格、对比、购买建议等。
+        语气友好，突出产品优势。
+      message: =Local.UserMessage
+      result: Local.Response
+    edges:
+      - targetId: send_response
+
+  # 技术支持智能体
+  - id: tech_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: tech_support
+      instructions: |
+        你是技术支持工程师，耐心专业地解决用户的技术问题。
+        提供：
+        1. 问题诊断
+        2. 解决步骤
+        3. 预防建议
+        使用清晰的步骤说明。
+      message: =Local.UserMessage
+      result: Local.Response
+    edges:
+      - targetId: send_response
+
+  # 投诉处理智能体
+  - id: complaint_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: complaint_handler
+      instructions: |
+        你是客户关怀专员，真诚地处理用户的投诉和建议。
+        1. 首先表示理解和歉意
+        2. 认真记录问题
+        3. 提供解决方案或升级路径
+        4. 感谢用户的反馈
+        语气要真诚、有同理心。
+      message: =Local.UserMessage
+      result: Local.Response
+    edges:
+      - targetId: send_response
+
+  # 通用助手智能体
+  - id: general_agent
+    type: InvokeAzureAgent
+    properties:
+      agentId: general_assistant
+      instructions: |
+        你是通用客服助手，处理各类综合问题。
+        如果问题超出你的能力范围，请建议用户联系人工客服。
+      message: =Local.UserMessage
+      result: Local.Response
+    edges:
+      - targetId: send_response
+
+  # 发送响应
+  - id: send_response
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: =Local.Response
+    edges:
+      - targetId: ask_continue
+
+  # 询问是否继续
+  - id: ask_continue
+    type: Question
+    properties:
+      prompt: "还有其他问题吗？（输入问题继续，输入'退出'结束）"
+      variable: Local.UserMessage
+    edges:
+      - targetId: goodbye
+        condition: Local.UserMessage == '退出'
+      - targetId: classify_intent
+
+  # 结束语
+  - id: goodbye
+    type: SendActivity
+    properties:
+      activity:
+        type: message
+        text: "感谢您的使用！祝您生活愉快！👋"

@@ -1,0 +1,38 @@
+#
+# 简单问候工作流示例
+# 演示 Agent Framework 支持的基本节点类型
+#
+# 这个工作流展示了一个完整的闭环：
+# 1. 用户发送消息 → 触发工作流
+# 2. InvokeAzureAgent 调用智能体处理
+# 3. SendActivity 返回响应给用户
+#
+kind: Workflow
+trigger:
+  kind: OnConversationStart
+  id: greeting_workflow
+  actions:
+    
+    # 设置初始变量
+    - kind: SetVariable
+      id: set_greeting_count
+      variable: Local.GreetingCount
+      value: =0
+
+    # 调用问候智能体
+    - kind: InvokeAzureAgent
+      id: greeting_agent
+      conversationId: =System.ConversationId
+      agent:
+        name: GreetingAgent
+      output:
+        responseObject: Local.AgentResponse
+
+    # 发送问候消息
+    - kind: SendActivity
+      id: send_greeting
+      activity: "你好！我是智能助手，有什么可以帮助你的吗？"
+
+    # 结束工作流
+    - kind: EndWorkflow
+      id: workflow_end
