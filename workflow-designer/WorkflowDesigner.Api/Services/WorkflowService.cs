@@ -1113,6 +1113,150 @@ public class WorkflowService : IWorkflowService
     }
 
     /// <summary>
+    /// 使用 Agent Framework 执行 YAML 工作流（通用方法）
+    /// </summary>
+    public async IAsyncEnumerable<ExecutionEvent> ExecuteYamlWorkflowAsync(
+        string yaml,
+        string userInput,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("开始使用 Agent Framework 执行 YAML 工作流");
+
+        yield return new ExecutionEvent
+        {
+            Type = ExecutionEventType.WorkflowStarted,
+            Message = "开始执行工作流",
+            Timestamp = DateTime.UtcNow
+        };
+
+        // 步骤1: 保存临时 YAML 文件
+        string yamlPath = Path.Combine(Path.GetTempPath(), $"workflow_{Guid.NewGuid()}.yaml");
+        await File.WriteAllTextAsync(yamlPath, yaml, cancellationToken);
+        
+        _logger.LogDebug("Generated YAML content:\n{YamlContent}", yaml);
+
+        yield return new ExecutionEvent
+        {
+            Type = ExecutionEventType.LogMessage,
+            Message = "构建工作流...",
+            Timestamp = DateTime.UtcNow
+        };
+
+        // 步骤2: 构建 workflow
+        Workflow? workflowObj = null;
+        string? errorMessage = null;
+        
+        try
+        {
+            var agentProvider = new SimpleWorkflowAgentProvider(
+                _chatClient, 
+                _agentRepository,
+                _loggerFactory.CreateLogger<SimpleWorkflowAgentProvider>());
+            
+            var options = new DeclarativeWorkflowOptions(agentProvider)
+            {
+                LoggerFactory = _loggerFactory
+            };
+
+            workflowObj = DeclarativeWorkflowBuilder.Build<string>(yamlPath, options);
+            _logger.LogInformation("Workflow built successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to build workflow from YAML");
+            errorMessage = ex.Message;
+        }
+
+        if (workflowObj == null || errorMessage != null)
+        {
+            yield return new ExecutionEvent
+            {
+                Type = ExecutionEventType.WorkflowFailed,
+                Message = $"构建工作流失败: {errorMessage}",
+                Timestamp = DateTime.UtcNow
+            };
+            CleanupTempFile(yamlPath);
+            yield break;
+        }
+
+        yield return new ExecutionEvent
+        {
+            Type = ExecutionEventType.LogMessage,
+            Message = "开始执行工作流...",
+            Timestamp = DateTime.UtcNow
+        };
+
+        // 步骤3: 执行 workflow
+        StreamingRun? run = null;
+        
+        _logger.LogInformation("Calling InProcessExecution.StreamAsync with input: {Input}", userInput);
+        run = await InProcessExecution.StreamAsync(
+            workflowObj,
+            userInput,
+            cancellationToken: cancellationToken
+        );
+        _logger.LogInformation("StreamingRun created, starting WatchStreamAsync...");
+
+        var eventCount = 0;
+        await foreach (var evt in run.WatchStreamAsync(cancellationToken))
+        {
+            eventCount++;
+            _logger.LogInformation("Received workflow event #{Count}: {EventType}", eventCount, evt.GetType().Name);
+            
+            // 特殊处理错误事件
+            if (evt is ExecutorFailedEvent failedEvt)
+            {
+                var exception = failedEvt.Data as Exception;
+                _logger.LogError("❌ Executor {ExecutorId} failed: {ErrorMessage}", 
+                    failedEvt.ExecutorId, 
+                    exception?.Message ?? failedEvt.Data?.ToString() ?? "Unknown error");
+                if (exception != null)
+                {
+                    _logger.LogError("Exception type: {ExceptionType}", exception.GetType().FullName);
+                    _logger.LogError("Stack trace: {StackTrace}", exception.StackTrace);
+                }
+            }
+            else if (evt is WorkflowErrorEvent errorEvt)
+            {
+                var exception = errorEvt.Data as Exception;
+                _logger.LogError("❌ Workflow error: {ErrorMessage}", 
+                    exception?.Message ?? errorEvt.Data?.ToString() ?? "Unknown error");
+                if (exception != null)
+                {
+                    _logger.LogError("Exception type: {ExceptionType}", exception.GetType().FullName);
+                    _logger.LogError("Stack trace: {StackTrace}", exception.StackTrace);
+                }
+            }
+            
+            var executionEvent = MapWorkflowEventToExecutionEvent(evt);
+            if (executionEvent != null)
+            {
+                yield return executionEvent;
+            }
+            else
+            {
+                _logger.LogDebug("Event {EventType} not mapped to ExecutionEvent", evt.GetType().Name);
+            }
+        }
+        
+        _logger.LogInformation("WatchStreamAsync completed, total events: {Count}", eventCount);
+
+        yield return new ExecutionEvent
+        {
+            Type = ExecutionEventType.WorkflowCompleted,
+            Message = "工作流执行完成",
+            Timestamp = DateTime.UtcNow
+        };
+
+        // 清理资源
+        if (run != null)
+        {
+            await run.DisposeAsync();
+        }
+        CleanupTempFile(yamlPath);
+    }
+
+    /// <summary>
     /// 将 Agent Framework 的 WorkflowEvent 映射到我们的 ExecutionEvent
     /// </summary>
     private ExecutionEvent? MapWorkflowEventToExecutionEvent(WorkflowEvent evt)

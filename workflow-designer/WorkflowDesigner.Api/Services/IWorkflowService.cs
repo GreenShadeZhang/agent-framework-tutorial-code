@@ -74,4 +74,12 @@ public interface IWorkflowService
     /// 转换为 Agent Framework YAML 格式
     /// </summary>
     Task<string> ConvertToAgentFrameworkYamlAsync(string workflowId);
+
+    /// <summary>
+    /// 使用 Agent Framework 执行 YAML 工作流（通用方法）
+    /// </summary>
+    IAsyncEnumerable<ExecutionEvent> ExecuteYamlWorkflowAsync(
+        string yaml,
+        string userInput,
+        CancellationToken cancellationToken = default);
 }

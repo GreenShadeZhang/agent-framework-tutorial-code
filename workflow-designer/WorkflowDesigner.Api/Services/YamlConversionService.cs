@@ -22,6 +22,8 @@ public class YamlConversionService
         _serializer = new SerializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+            .WithIndentedSequences() // 确保列表项正确缩进
+            .WithMaximumRecursion(100)
             .Build();
 
         _deserializer = new DeserializerBuilder()
@@ -31,13 +33,28 @@ public class YamlConversionService
     }
 
     /// <summary>
-    /// 将声明式工作流定义转换为 AdaptiveDialog YAML 格式
+    /// 将声明式工作流定义转换为 Agent Framework Workflow YAML 格式
     /// </summary>
     public string ConvertToYaml(DeclarativeWorkflowDefinition workflow)
     {
-        var adaptiveDialog = ConvertToAdaptiveDialog(workflow);
-        var yaml = _serializer.Serialize(adaptiveDialog);
-        return yaml;
+        try
+        {
+            // 生成 Workflow 格式（与 Agent Framework 导入格式一致）
+            var workflowYaml = ConvertToWorkflowYaml(workflow);
+            var yaml = _serializer.Serialize(workflowYaml);
+            
+            // 记录生成的 YAML 用于调试（完整内容）
+            _logger.LogInformation("========== Generated YAML for workflow {WorkflowName} ==========", workflow.Name);
+            _logger.LogInformation("{Yaml}", yaml);
+            _logger.LogInformation("========== End of YAML ==========");
+            
+            return yaml;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error converting workflow {WorkflowName} to YAML", workflow.Name);
+            throw;
+        }
     }
 
     /// <summary>
@@ -530,6 +547,36 @@ public class YamlConversionService
     }
 
     /// <summary>
+    /// 转换为 Workflow 格式（与 Agent Framework 导入格式一致）
+    /// </summary>
+    private Dictionary<string, object> ConvertToWorkflowYaml(DeclarativeWorkflowDefinition workflow)
+    {
+        // 按照拓扑排序执行器
+        var sortedExecutors = TopologicalSort(workflow);
+
+        var actions = new List<Dictionary<string, object>>();
+        foreach (var executor in sortedExecutors)
+        {
+            var action = ConvertExecutorToWorkflowAction(executor, workflow);
+            if (action != null)
+            {
+                actions.Add(action);
+            }
+        }
+
+        return new Dictionary<string, object>
+        {
+            ["kind"] = "Workflow",
+            ["trigger"] = new Dictionary<string, object>
+            {
+                ["kind"] = "OnConversationStart",
+                ["id"] = workflow.Name ?? workflow.Id,
+                ["actions"] = actions
+            }
+        };
+    }
+
+    /// <summary>
     /// 转换为 AdaptiveDialog 格式
     /// </summary>
     private AdaptiveDialogYaml ConvertToAdaptiveDialog(DeclarativeWorkflowDefinition workflow)
@@ -537,7 +584,7 @@ public class YamlConversionService
         var dialog = new AdaptiveDialogYaml
         {
             Kind = "AdaptiveDialog",
-            Id = new IdProperty { Value = workflow.Id },
+            Id = workflow.Id,
             DialogVersion = workflow.Version,
             Actions = new List<ActionYaml>()
         };
@@ -564,7 +611,7 @@ public class YamlConversionService
     {
         var workflow = new DeclarativeWorkflowDefinition
         {
-            Id = dialog.Id?.Value ?? Guid.NewGuid().ToString(),
+            Id = dialog.Id ?? Guid.NewGuid().ToString(),
             Version = dialog.DialogVersion ?? "1.0.0",
             Executors = new List<ExecutorDefinition>(),
             EdgeGroups = new List<EdgeGroupDefinition>()
@@ -653,6 +700,80 @@ public class YamlConversionService
         };
     }
 
+    /// <summary>
+    /// 将执行器转换为 Workflow Action 字典格式
+    /// </summary>
+    private Dictionary<string, object>? ConvertExecutorToWorkflowAction(ExecutorDefinition executor, DeclarativeWorkflowDefinition workflow)
+    {
+        var action = new Dictionary<string, object>
+        {
+            ["kind"] = GetWorkflowActionKind(executor.Type),
+            ["id"] = executor.Id
+        };
+
+        switch (executor.Type)
+        {
+            case ExecutorType.SetVariable:
+                var variableName = GetConfigValue<string>(executor.Config, "variableName") ?? "";
+                var value = GetConfigValue<string>(executor.Config, "value") ?? "";
+                action["variable"] = variableName;
+                action["value"] = value;
+                break;
+
+            case ExecutorType.InvokeAzureAgent:
+                var agentName = GetConfigValue<string>(executor.Config, "name") ?? "";
+                var conversationId = GetConfigValue<string>(executor.Config, "conversationId") ?? "=System.ConversationId";
+                action["conversationId"] = conversationId;
+                action["agent"] = new Dictionary<string, object>
+                {
+                    ["name"] = agentName
+                };
+                break;
+
+            case ExecutorType.SendActivity:
+                var message = GetConfigValue<string>(executor.Config, "message") ?? "";
+                action["activity"] = message;
+                break;
+
+            case ExecutorType.Question:
+                var prompt = GetConfigValue<string>(executor.Config, "prompt") ?? "";
+                var resultVar = GetConfigValue<string>(executor.Config, "resultVariable") ?? "user_response";
+                action["prompt"] = prompt;
+                action["variable"] = resultVar;
+                break;
+
+            case ExecutorType.EndWorkflow:
+                // EndWorkflow 不需要额外属性
+                break;
+
+            case ExecutorType.EndConversation:
+                // EndConversation 不需要额外属性
+                break;
+
+            default:
+                _logger.LogWarning("未支持的执行器类型转换为 Workflow Action: {Type}", executor.Type);
+                return null;
+        }
+
+        return action;
+    }
+
+    private string GetWorkflowActionKind(ExecutorType type)
+    {
+        return type switch
+        {
+            ExecutorType.SetVariable => "SetVariable",
+            ExecutorType.InvokeAzureAgent => "InvokeAzureAgent",
+            ExecutorType.SendActivity => "SendActivity",
+            ExecutorType.Question => "Question",
+            ExecutorType.EndWorkflow => "EndWorkflow",
+            ExecutorType.EndConversation => "EndConversation",
+            ExecutorType.ConditionGroup => "ConditionGroup",
+            ExecutorType.Foreach => "Foreach",
+            _ => type.ToString()
+        };
+    }
+
     #region Executor to Action Converters
 
     private ActionYaml ConvertAgentExecutorToAction(ExecutorDefinition executor)
@@ -662,7 +783,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "InvokeAzureAgent",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             AgentName = agentConfig?.Name ?? executor.Name,
             Instructions = agentConfig?.InstructionsTemplate,
             Model = agentConfig?.ModelConfig?.Model ?? "gpt-4o",
@@ -682,7 +803,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "ConditionGroup",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             Conditions = new List<ConditionItemYaml>
             {
                 new ConditionItemYaml
@@ -718,7 +839,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "ConditionGroup",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             Conditions = groupConfig?.Conditions?.Select(c => new ConditionItemYaml
             {
                 Expression = c.Expression,
@@ -751,7 +872,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "Foreach",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             ItemsProperty = foreachConfig?.ItemsExpression ?? "[]",
             Value = foreachConfig?.ItemVariableName ?? "item",
             Index = foreachConfig?.IndexVariableName ?? "index",
@@ -767,7 +888,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = executor.Type == ExecutorType.SetVariable ? "SetVariable" : "SetMultipleVariables",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             Property = variableName,
             Value = value
         };
@@ -780,7 +901,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "SendActivity",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             Activity = new ActivityYaml
             {
                 Type = "message",
@@ -797,7 +918,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "Question",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             Prompt = prompt,
             Property = variableName
         };
@@ -808,7 +929,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "EndWorkflow",
-            Id = new IdProperty { Value = executor.Id }
+            Id = executor.Id
         };
     }
 
@@ -817,7 +938,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "EndConversation",
-            Id = new IdProperty { Value = executor.Id }
+            Id = executor.Id
         };
     }
 
@@ -829,7 +950,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "InvokeAzureAgent",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             AgentName = agentName,
             ConnectionName = connectionName
         };
@@ -842,7 +963,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "BeginDialog",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             Dialog = workflowId
         };
     }
@@ -854,7 +975,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = "ActionScope",
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             Actions = parallelTargets.Select(targetId =>
             {
                 var targetExecutor = workflow.Executors.FirstOrDefault(e => e.Id == targetId);
@@ -870,7 +991,7 @@ public class YamlConversionService
         return new ActionYaml
         {
             Kind = executor.Type.ToString(),
-            Id = new IdProperty { Value = executor.Id },
+            Id = executor.Id,
             Config = executor.Config
         };
     }
@@ -883,7 +1004,7 @@ public class YamlConversionService
     {
         var executor = new ExecutorDefinition
         {
-            Id = action.Id?.Value ?? Guid.NewGuid().ToString(),
+            Id = action.Id ?? Guid.NewGuid().ToString(),
             Name = action.AgentName ?? action.Kind ?? "Unknown",
             Position = new NodePosition { X = 250, Y = yOffset }
         };
@@ -1109,19 +1230,14 @@ public class AdaptiveDialogYaml
     [YamlMember(Alias = "$kind")]
     public string Kind { get; set; } = "AdaptiveDialog";
 
-    public IdProperty? Id { get; set; }
+    [YamlMember(Alias = "id")]
+    public string? Id { get; set; }
 
+    [YamlMember(Alias = "dialogVersion")]
     public string? DialogVersion { get; set; }
 
+    [YamlMember(Alias = "actions")]
     public List<ActionYaml>? Actions { get; set; }
-}
-
-/// <summary>
-/// ID 属性
-/// </summary>
-public class IdProperty
-{
-    public string Value { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -1132,7 +1248,8 @@ public class ActionYaml
     [YamlMember(Alias = "$kind")]
     public string? Kind { get; set; }
 
-    public IdProperty? Id { get; set; }
+    [YamlMember(Alias = "id")]
+    public string? Id { get; set; }
 
     // Agent相关
     public string? AgentName { get; set; }
