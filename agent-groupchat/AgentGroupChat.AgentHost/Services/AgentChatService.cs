@@ -119,7 +119,7 @@ public class AgentChatService
 
             await foreach (WorkflowEvent evt in run.WatchStreamAsync())
             {
-                if (evt is AgentRunUpdateEvent agentUpdate)
+                if (evt is AgentResponseUpdateEvent agentUpdate)
                 {
                     // ✅ 完全跳过 triage agent 的所有事件处理
                     var executorIdPrefix = agentUpdate.ExecutorId.Contains('_') 
@@ -291,7 +291,14 @@ public class AgentChatService
                             currentSummary.AgentAvatar,
                             _storeLogger);
 
-                        await messageStore.AddMessagesAsync(messagesToSave);
+                        // 使用 InvokedAsync 保存消息
+                        var context = new ChatHistoryProvider.InvokedContext(
+                            requestMessages: messagesToSave,
+                            chatHistoryProviderMessages: null)
+                        {
+                            ResponseMessages = null
+                        };
+                        await messageStore.InvokedAsync(context);
 
                         _logger?.LogInformation("Saved {Count} messages to LiteDB for session {SessionId} (Agent: {AgentId})",
                             messagesToSave.Count, sessionId, currentExecutorId);

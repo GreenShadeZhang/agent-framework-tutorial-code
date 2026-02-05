@@ -9,11 +9,11 @@ using SysJsonSerializer = System.Text.Json.JsonSerializer;
 namespace AgentGroupChat.AgentHost.Services;
 
 /// <summary>
-/// LiteDB 实现的 ChatMessageStore
-/// 参考 Agent Framework Step07 的 VectorChatMessageStore 设计
-/// 将消息存储在独立的 LiteDB 集合中，Thread 序列化时只保存 SessionId
+/// LiteDB 实现的 ChatHistoryProvider
+/// 参考 Agent Framework Step07 的 VectorChatHistoryProvider 设计
+/// 将消息存储在独立的 LiteDB 集合中，Session 序列化时只保存 SessionId
 /// </summary>
-public class LiteDbChatMessageStore : ChatMessageStore
+public class LiteDbChatMessageStore : ChatHistoryProvider
 {
     private readonly ILiteCollection<PersistedChatMessage> _messagesCollection;
     private readonly ILogger<LiteDbChatMessageStore>? _logger;
@@ -98,17 +98,48 @@ public class LiteDbChatMessageStore : ChatMessageStore
     }
 
     /// <summary>
+    /// InvokingAsync - 在 Agent 调用前返回历史消息
+    /// </summary>
+    public override async ValueTask<IEnumerable<ChatMessage>> InvokingAsync(
+        InvokingContext context, 
+        CancellationToken cancellationToken = default)
+    {
+        return await GetMessagesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// InvokedAsync - 在 Agent 调用后保存新消息
+    /// </summary>
+    public override async ValueTask InvokedAsync(
+        InvokedContext context, 
+        CancellationToken cancellationToken = default)
+    {
+        if (context.InvokeException is not null)
+        {
+            // 如果调用失败，不保存消息
+            return;
+        }
+
+        // 合并所有新消息：请求消息 + AI 上下文消息 + 响应消息
+        var allNewMessages = context.RequestMessages
+            .Concat(context.AIContextProviderMessages ?? [])
+            .Concat(context.ResponseMessages ?? []);
+
+        await AddMessagesAsync(allNewMessages, cancellationToken);
+    }
+
+    /// <summary>
     /// 添加消息到 LiteDB
     /// </summary>
-    public override async Task AddMessagesAsync(
-        IEnumerable<AIChatMessage> messages, 
+    private async Task AddMessagesAsync(
+        IEnumerable<ChatMessage> messages, 
         CancellationToken cancellationToken = default)
     {
         try
         {
             var persistedMessages = messages.Select(msg => 
             {
-                var isUserMessage = msg.Role.ToString().Equals("user", StringComparison.OrdinalIgnoreCase);
+                var isUserMessage = msg.Role.Value.Equals("user", StringComparison.OrdinalIgnoreCase);
                 
                 return new PersistedChatMessage
                 {
@@ -118,7 +149,7 @@ public class LiteDbChatMessageStore : ChatMessageStore
                     Timestamp = DateTimeOffset.UtcNow,
                     SerializedMessage = SysJsonSerializer.Serialize(msg),
                     MessageText = msg.Text,
-                    Role = msg.Role.ToString(),
+                    Role = msg.Role.Value,
                     
                     // ✅ 修复：正确填充 Agent 信息
                     AgentId = isUserMessage ? "user" : AgentId,
@@ -154,7 +185,7 @@ public class LiteDbChatMessageStore : ChatMessageStore
     /// <summary>
     /// 从消息中提取图片 URL
     /// </summary>
-    private string? ExtractImageUrl(AIChatMessage msg)
+    private string? ExtractImageUrl(ChatMessage msg)
     {
         // 检查 AdditionalProperties
         if (msg.AdditionalProperties?.TryGetValue("imageUrl", out var imageUrl) == true)
@@ -171,7 +202,7 @@ public class LiteDbChatMessageStore : ChatMessageStore
     /// <summary>
     /// 从 LiteDB 获取消息
     /// </summary>
-    public override async Task<IEnumerable<AIChatMessage>> GetMessagesAsync(
+    private async Task<IEnumerable<ChatMessage>> GetMessagesAsync(
         CancellationToken cancellationToken = default)
     {
         try
@@ -185,7 +216,7 @@ public class LiteDbChatMessageStore : ChatMessageStore
             }, cancellationToken);
 
             var messages = persistedMessages
-                .Select(pm => SysJsonSerializer.Deserialize<AIChatMessage>(pm.SerializedMessage)!)
+                .Select(pm => SysJsonSerializer.Deserialize<ChatMessage>(pm.SerializedMessage)!)
                 .Where(m => m != null)
                 .ToList();
 
@@ -197,7 +228,7 @@ public class LiteDbChatMessageStore : ChatMessageStore
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Error getting messages from session {SessionId}", SessionId);
-            return Enumerable.Empty<AIChatMessage>();
+            return Enumerable.Empty<ChatMessage>();
         }
     }
 

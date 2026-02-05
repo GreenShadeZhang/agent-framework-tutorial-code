@@ -142,14 +142,13 @@ app.MapGet("/api/agents", (AgentChatService agentService) =>
 {
     return Results.Ok(agentService.GetAgentProfiles());
 })
-.WithName("GetAgents")
-.WithOpenApi();
+.WithName("GetAgents");
 
 // Get all sessions
 app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
 {
     var sessions = sessionService.GetAllSessions();
-    
+
     // 映射到前端模型（不包含消息详情，只有元数据）
     var result = sessions.Select(s => new
     {
@@ -162,17 +161,16 @@ app.MapGet("/api/sessions", (PersistedSessionService sessionService) =>
         s.IsActive,
         Messages = new List<object>() // 空消息列表，前端会通过 /messages 端点加载
     }).ToList();
-    
+
     return Results.Ok(result);
 })
-.WithName("GetSessions")
-.WithOpenApi();
+.WithName("GetSessions");
 
 // Create new session
 app.MapPost("/api/sessions", (PersistedSessionService sessionService, CreateSessionRequest? request) =>
 {
     var session = sessionService.CreateSession(request?.Name, request?.GroupId);
-    
+
     // 映射到前端模型
     var result = new
     {
@@ -185,11 +183,10 @@ app.MapPost("/api/sessions", (PersistedSessionService sessionService, CreateSess
         session.IsActive,
         Messages = new List<object>() // 新会话没有消息
     };
-    
+
     return Results.Ok(result);
 })
-.WithName("CreateSession")
-.WithOpenApi();
+.WithName("CreateSession");
 
 // Get specific session
 app.MapGet("/api/sessions/{id}", (string id, PersistedSessionService sessionService) =>
@@ -197,7 +194,7 @@ app.MapGet("/api/sessions/{id}", (string id, PersistedSessionService sessionServ
     var session = sessionService.GetSession(id);
     if (session == null)
         return Results.NotFound();
-    
+
     // 映射到前端模型（不包含消息详情，前端会通过 /messages 端点加载）
     var result = new
     {
@@ -210,11 +207,10 @@ app.MapGet("/api/sessions/{id}", (string id, PersistedSessionService sessionServ
         session.IsActive,
         Messages = new List<object>() // 空消息列表
     };
-    
+
     return Results.Ok(result);
 })
-.WithName("GetSession")
-.WithOpenApi();
+.WithName("GetSession");
 
 // Send message and get streaming response
 app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentService, PersistedSessionService sessionService) =>
@@ -228,14 +224,13 @@ app.MapPost("/api/chat", async (ChatRequest request, AgentChatService agentServi
 
     // 使用会话关联的 GroupId 发送消息
     var responses = await agentService.SendMessageAsync(
-        request.Message, 
+        request.Message,
         request.SessionId,
         session.GroupId); // 使用会话的 GroupId
 
     return Results.Ok(responses);
 })
-.WithName("SendChatMessage")
-.WithOpenApi();
+.WithName("SendChatMessage");
 
 // Delete session
 app.MapDelete("/api/sessions/{id}", (string id, PersistedSessionService sessionService) =>
@@ -243,8 +238,7 @@ app.MapDelete("/api/sessions/{id}", (string id, PersistedSessionService sessionS
     sessionService.DeleteSession(id);
     return Results.Ok();
 })
-.WithName("DeleteSession")
-.WithOpenApi();
+.WithName("DeleteSession");
 
 // Clear conversation (keep session, clear messages)
 app.MapPost("/api/sessions/{id}/clear", (string id, AgentChatService agentService, PersistedSessionService sessionService) =>
@@ -252,12 +246,11 @@ app.MapPost("/api/sessions/{id}/clear", (string id, AgentChatService agentServic
     var session = sessionService.GetSession(id);
     if (session == null)
         return Results.NotFound("Session not found");
-    
+
     agentService.ClearConversation(id);
     return Results.Ok();
 })
-.WithName("ClearConversation")
-.WithOpenApi();
+.WithName("ClearConversation");
 
 // Get conversation history
 app.MapGet("/api/sessions/{id}/messages", (string id, AgentChatService agentService, PersistedSessionService sessionService) =>
@@ -265,12 +258,11 @@ app.MapGet("/api/sessions/{id}/messages", (string id, AgentChatService agentServ
     var session = sessionService.GetSession(id);
     if (session == null)
         return Results.NotFound("Session not found");
-    
+
     var history = agentService.GetConversationHistory(id);
     return Results.Ok(history);
 })
-.WithName("GetConversationHistory")
-.WithOpenApi();
+.WithName("GetConversationHistory");
 
 // Get statistics
 app.MapGet("/api/stats", (PersistedSessionService sessionService) =>
@@ -278,8 +270,7 @@ app.MapGet("/api/stats", (PersistedSessionService sessionService) =>
     var stats = sessionService.GetStatistics();
     return Results.Ok(stats);
 })
-.WithName("GetStatistics")
-.WithOpenApi();
+.WithName("GetStatistics");
 
 // Get MCP server information
 app.MapGet("/api/mcp/servers", (McpToolService mcpService) =>
@@ -287,8 +278,7 @@ app.MapGet("/api/mcp/servers", (McpToolService mcpService) =>
     var servers = mcpService.GetServerInfo();
     return Results.Ok(servers);
 })
-.WithName("GetMcpServers")
-.WithOpenApi();
+.WithName("GetMcpServers");
 
 // ===== Agent Management Endpoints =====
 
@@ -298,8 +288,7 @@ app.MapGet("/api/admin/agents", (AgentRepository agentRepo) =>
     var agents = agentRepo.GetAll();
     return Results.Ok(agents);
 })
-.WithName("GetAllAgentsFromDb")
-.WithOpenApi();
+.WithName("GetAllAgentsFromDb");
 
 // Get agent by ID
 app.MapGet("/api/admin/agents/{id}", (string id, AgentRepository agentRepo) =>
@@ -307,27 +296,25 @@ app.MapGet("/api/admin/agents/{id}", (string id, AgentRepository agentRepo) =>
     var agent = agentRepo.GetById(id);
     if (agent == null)
         return Results.NotFound($"Agent {id} not found");
-    
+
     return Results.Ok(agent);
 })
-.WithName("GetAgentById")
-.WithOpenApi();
+.WithName("GetAgentById");
 
 // Create or update agent
 app.MapPost("/api/admin/agents", (PersistedAgentProfile agent, AgentRepository agentRepo, WorkflowManager workflowManager) =>
 {
     if (string.IsNullOrWhiteSpace(agent.Id))
         return Results.BadRequest("Agent ID is required");
-    
+
     agentRepo.Upsert(agent);
-    
+
     // Clear workflow cache to force recreation with new agent config
     workflowManager.ClearAllWorkflowCache();
-    
+
     return Results.Ok(agent);
 })
-.WithName("UpsertAgent")
-.WithOpenApi();
+.WithName("UpsertAgent");
 
 // Delete agent
 app.MapDelete("/api/admin/agents/{id}", (string id, AgentRepository agentRepo, WorkflowManager workflowManager) =>
@@ -335,14 +322,13 @@ app.MapDelete("/api/admin/agents/{id}", (string id, AgentRepository agentRepo, W
     var deleted = agentRepo.Delete(id);
     if (!deleted)
         return Results.NotFound($"Agent {id} not found");
-    
+
     // Clear workflow cache
     workflowManager.ClearAllWorkflowCache();
-    
+
     return Results.Ok();
 })
-.WithName("DeleteAgent")
-.WithOpenApi();
+.WithName("DeleteAgent");
 
 // ===== Agent Group Management Endpoints =====
 
@@ -352,8 +338,7 @@ app.MapGet("/api/admin/groups", (AgentGroupRepository groupRepo) =>
     var groups = groupRepo.GetAll();
     return Results.Ok(groups);
 })
-.WithName("GetAllGroups")
-.WithOpenApi();
+.WithName("GetAllGroups");
 
 // Get agent group by ID
 app.MapGet("/api/admin/groups/{id}", (string id, AgentGroupRepository groupRepo) =>
@@ -361,27 +346,25 @@ app.MapGet("/api/admin/groups/{id}", (string id, AgentGroupRepository groupRepo)
     var group = groupRepo.GetById(id);
     if (group == null)
         return Results.NotFound($"Group {id} not found");
-    
+
     return Results.Ok(group);
 })
-.WithName("GetGroupById")
-.WithOpenApi();
+.WithName("GetGroupById");
 
 // Create or update agent group
 app.MapPost("/api/admin/groups", (AgentGroup group, AgentGroupRepository groupRepo, WorkflowManager workflowManager) =>
 {
     if (string.IsNullOrWhiteSpace(group.Id))
         return Results.BadRequest("Group ID is required");
-    
+
     groupRepo.Upsert(group);
-    
+
     // Clear workflow cache for this group
     workflowManager.ClearWorkflowCache(group.Id);
-    
+
     return Results.Ok(group);
 })
-.WithName("UpsertGroup")
-.WithOpenApi();
+.WithName("UpsertGroup");
 
 // Delete agent group
 app.MapDelete("/api/admin/groups/{id}", (string id, AgentGroupRepository groupRepo, WorkflowManager workflowManager) =>
@@ -389,14 +372,13 @@ app.MapDelete("/api/admin/groups/{id}", (string id, AgentGroupRepository groupRe
     var deleted = groupRepo.Delete(id);
     if (!deleted)
         return Results.NotFound($"Group {id} not found");
-    
+
     // Clear workflow cache
     workflowManager.ClearWorkflowCache(id);
-    
+
     return Results.Ok();
 })
-.WithName("DeleteGroup")
-.WithOpenApi();
+.WithName("DeleteGroup");
 
 // ===== Initialization Endpoint =====
 
@@ -407,7 +389,7 @@ app.MapPost("/api/admin/initialize", (AgentRepository agentRepo, AgentGroupRepos
     {
         agentRepo.InitializeDefaultAgents();
         groupRepo.InitializeDefaultGroup();
-        
+
         return Results.Ok(new
         {
             Message = "Default agents and groups initialized successfully",
@@ -420,8 +402,7 @@ app.MapPost("/api/admin/initialize", (AgentRepository agentRepo, AgentGroupRepos
         return Results.Problem($"Error initializing data: {ex.Message}");
     }
 })
-.WithName("InitializeDefaultData")
-.WithOpenApi();
+.WithName("InitializeDefaultData");
 
 // ===== 调试端点 =====
 
@@ -430,7 +411,7 @@ app.MapGet("/api/debug/messages/{sessionId}", (string sessionId, PersistedSessio
 {
     var collection = sessionService.GetMessagesCollection();
     var messages = collection.Find(m => m.SessionId == sessionId).ToList();
-    
+
     return Results.Ok(new
     {
         SessionId = sessionId,
@@ -441,8 +422,8 @@ app.MapGet("/api/debug/messages/{sessionId}", (string sessionId, PersistedSessio
             m.SessionId,
             m.MessageId,
             m.Timestamp,
-            MessageText = m.MessageText?.Length > 100 
-                ? m.MessageText.Substring(0, 100) + "..." 
+            MessageText = m.MessageText?.Length > 100
+                ? m.MessageText.Substring(0, 100) + "..."
                 : m.MessageText,
             m.AgentId,
             m.AgentName,
@@ -453,15 +434,14 @@ app.MapGet("/api/debug/messages/{sessionId}", (string sessionId, PersistedSessio
         }).ToList()
     });
 })
-.WithName("DebugGetMessages")
-.WithOpenApi();
+.WithName("DebugGetMessages");
 
 // Debug: Get all sessions with message counts
 app.MapGet("/api/debug/sessions", (PersistedSessionService sessionService) =>
 {
     var collection = sessionService.GetMessagesCollection();
     var sessions = sessionService.GetAllSessions();
-    
+
     var result = sessions.Select(s => new
     {
         s.Id,
@@ -472,11 +452,10 @@ app.MapGet("/api/debug/sessions", (PersistedSessionService sessionService) =>
         ActualMessageCount = collection.Count(m => m.SessionId == s.Id),
         s.IsActive
     }).ToList();
-    
+
     return Results.Ok(result);
 })
-.WithName("DebugGetSessions")
-.WithOpenApi();
+.WithName("DebugGetSessions");
 
 app.MapDefaultEndpoints();
 

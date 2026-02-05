@@ -70,7 +70,7 @@ agent-groupchat/
 
 ### 前置要求
 
-1. .NET 9.0 SDK 或更高版本
+1. .NET 10.0 SDK 或更高版本
 2. OpenAI 兼容 API 或 Azure OpenAI 服务
 3. Visual Studio 2022 或 VS Code
 

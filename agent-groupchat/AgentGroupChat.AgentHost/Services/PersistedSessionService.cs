@@ -233,10 +233,10 @@ public class PersistedSessionService : IDisposable
     #region AgentThread 持久化核心功能
 
     /// <summary>
-    /// 保存 AgentThread 到会话（优化版）
-    /// Thread 序列化数据只包含最小元数据（SessionId），消息由 ChatMessageStore 管理
+    /// 保存 AgentSession 到会话（优化版）
+    /// Session 序列化数据只包含最小元数据（SessionId），消息由 ChatHistoryProvider 管理
     /// </summary>
-    public void SaveThread(string sessionId, AgentThread thread)
+    public void SaveThread(string sessionId, AgentSession thread)
     {
         try
         {
@@ -246,7 +246,7 @@ public class PersistedSessionService : IDisposable
                 throw new InvalidOperationException($"Session {sessionId} not found");
             }
 
-            // 序列化 AgentThread（现在只包含 SessionId 等元数据，不包含消息）
+            // 序列化 AgentSession（现在只包含 SessionId 等元数据，不包含消息）
             JsonElement serializedThread = thread.Serialize();
             session.ThreadData = System.Text.Json.JsonSerializer.Serialize(serializedThread, new JsonSerializerOptions 
             { 
@@ -278,21 +278,21 @@ public class PersistedSessionService : IDisposable
             // 更新缓存
             UpdateCache(sessionId, session);
             
-            _logger?.LogDebug("Saved AgentThread for session {SessionId}, message count: {Count}", 
+            _logger?.LogDebug("Saved AgentSession for session {SessionId}, message count: {Count}", 
                 sessionId, session.MessageCount);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error saving thread for session {SessionId}", sessionId);
+            _logger?.LogError(ex, "Error saving session for session {SessionId}", sessionId);
             throw;
         }
     }
 
     /// <summary>
-    /// 从会话加载 AgentThread
-    /// 这是核心方法，实现官方示例的 agent.DeserializeThread() 机制
+    /// 从会话加载 AgentSession
+    /// 这是核心方法，实现官方示例的 agent.DeserializeSession() 机制
     /// </summary>
-    public AgentThread? LoadThread(string sessionId, AIAgent agent)
+    public async Task<AgentSession?> LoadThread(string sessionId, AIAgent agent)
     {
         try
         {
@@ -309,11 +309,11 @@ public class PersistedSessionService : IDisposable
                 return null;
             }
 
-            // 反序列化 AgentThread（官方机制）
+            // 反序列化 AgentSession（官方机制）
             var jsonElement = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(session.ThreadData);
-            var thread = agent.DeserializeThread(jsonElement);
+            var thread = await agent.DeserializeSessionAsync(jsonElement);
             
-            _logger?.LogDebug("Loaded AgentThread for session {SessionId}", sessionId);
+            _logger?.LogDebug("Loaded AgentSession for session {SessionId}", sessionId);
             return thread;
         }
         catch (Exception ex)
@@ -324,20 +324,21 @@ public class PersistedSessionService : IDisposable
     }
 
     /// <summary>
-    /// 获取或创建 AgentThread
-    /// 便捷方法：如果会话已有 thread 则加载，否则创建新的
+    /// 获取或创建 AgentSession
+    /// 便捷方法：如果会话已有 session 则加载，否则创建新的
     /// </summary>
-    public AgentThread GetOrCreateThread(string sessionId, AIAgent agent)
+    public async Task<AgentSession> GetOrCreateThreadAsync(string sessionId, AIAgent agent)
     {
-        var thread = LoadThread(sessionId, agent);
+        var thread = await LoadThread(sessionId, agent);
         if (thread != null)
         {
             return thread;
         }
 
-        // 创建新 thread
-        var newThread = agent.GetNewThread();
-        _logger?.LogDebug("Created new thread for session {SessionId}", sessionId);
+        // 创建新 thread - 使用 DeserializeSessionAsync 从空 JSON 对象创建新会话
+        var emptyState = System.Text.Json.JsonSerializer.SerializeToElement(new { });
+        var newThread = await agent.DeserializeSessionAsync(emptyState);
+        _logger?.LogDebug("Created new session for session {SessionId}", sessionId);
         return newThread;
     }
 

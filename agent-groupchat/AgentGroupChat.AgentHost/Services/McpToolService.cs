@@ -134,7 +134,10 @@ public class McpToolService : IAsyncDisposable
         }
 
         // Configure HttpClient with Bearer token
-        var httpClient = new HttpClient();
+        var httpClient = new HttpClient()
+        {
+            Timeout = TimeSpan.FromMinutes(2)
+        };
         httpClient.DefaultRequestHeaders.Authorization = 
             new AuthenticationHeaderValue("Bearer", config.BearerToken);
 
